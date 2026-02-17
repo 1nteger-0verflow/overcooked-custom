@@ -1,0 +1,10 @@
+verbose: true
+observation: false
+seed: [0, 0]
+confirm: false
+visualize: true
+loop: false
+profile: false
+log: false
+log_dir: action_logs
+random_agent_position: false

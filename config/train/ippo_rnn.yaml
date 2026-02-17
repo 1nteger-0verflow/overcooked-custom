@@ -1,0 +1,32 @@
+NUM_SEEDS: 1
+SEED: 0
+
+LR: 0.00025
+ANNEAL_LR: True
+LR_WARMUP: 0.05 # NUM_LEARNING_STEPSに対するウォームアップの割合
+
+NUM_ENVS: 32 # 並列実行する環境の個数(16GB: 32*2agents)
+MINIBATCH_SIZE: 16 # NUM_ENVS*num_agentsを割り切る数
+NUM_UPDATE_EPOCHS: 4 # minibatch単位の学習１周を繰り返す回数
+NUM_TRAINING_STEPS: 30000 # 行動->学習(UPDATE_EPOCHS回) を1単位として何回繰り返すか
+REW_SHAPING_HORIZON: 60000 # LEARNING_STEPS に応じてshaped_rewardの重みを減らすしていき、HORIZON以降は提供時のrewardのみになる。
+TIMESTEPS: 30 # 学習1ステップのために環境の更新を行いデータを収集するステップ数(おそらく環境のterminal_timeを割り切る方が良い)
+
+FC_DIM_SIZE: 128
+# GRU: Gated Recurrent Unit(LSTMの簡易版)
+GRU_HIDDEN_DIM: 128
+
+ACTIVATION: relu
+CLIP_EPS: 0.2
+GAMMA: 0.99
+GAE_LAMBDA: 0.95
+MAX_GRAD_NORM: 0.25
+VF_COEF: 0.5
+ENT_COEF: 0.01
+
+# エージェントの初期位置を元の位置から移動可能な範囲でランダムにする
+RANDOM_AGENT_POS: true
+
+# チェックポイントの保存先
+CHECKPOINT_SAVE_DIR: checkpoints
+CHECKPOINT_INTERVAL_STEP: 100

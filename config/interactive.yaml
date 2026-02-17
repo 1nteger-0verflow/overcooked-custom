@@ -1,0 +1,18 @@
+defaults:
+  - layout: layouts
+  - env: default
+  - ui: default
+  - option: default
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+  - _self_
+
+stage: compact
+player:
+  - keyboard
+  - keyboard
+
+hydra:
+  output_subdir: null
+  run:
+    dir: ./
