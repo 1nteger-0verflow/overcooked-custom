@@ -1,0 +1,119 @@
+{
+    "folders": [
+        {
+            "name": "root",
+            "path": "."
+        }
+    ],
+    "settings": {
+        // Util
+        "editor.tabSize": 4,
+        "editor.formatOnSave": false,
+        "debug.inlineValues": "auto",
+        "zenMode.hideLineNumbers": false,
+        "git-graph.dialog.merge.noFastForward": false,
+        "git-graph.dialog.rebase.launchInteractiveRebase": false,
+        "git-graph.dialog.rebase.ignoreDate": false,
+        "git-graph.repository.fetchAndPrune": true,
+        "files.eol": "\n",
+        // Python
+        "[python]": {
+            "editor.tabSize": 4,
+            "editor.formatOnSave": true,
+            "editor.defaultFormatter": "charliermarsh.ruff",
+            "editor.wordBasedSuggestions": "off",
+            "diffEditor.ignoreTrimWhitespace": false,
+            "editor.codeActionsOnSave": {
+                "source.organizeImports": "explicit"
+            }
+        },
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.analysis.typeCheckingMode": "basic",
+        "python.analysis.diagnosticSeverityOverrides": {
+            "reportInvalidTypeForm": "none"
+        },
+        "debugpy.showPythonInlineValues": false,
+        "ruff.importStrategy": "useBundled",
+        "ruff.interpreter": [ "${workspaceFolder}/.venv/bin/python" ],
+        // Json
+        "[json][jsonc]": {
+            "editor.formatOnSave": true,
+            "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "prettier.tabWidth": 4,
+        // Yaml
+        "[yaml]": {
+            "editor.formatOnSave": true,
+            "editor.insertSpaces": true,
+            "editor.tabSize": 4,
+            "editor.indentSize": 2,
+            "editor.autoIndent": "advanced"
+        },
+        // Markdown
+        "markdownlint.config": { "MD007": { "indent": 4 } },
+        "markdown.extension.tableFormatter.normalizeIndentation": true,
+        "markdown.extension.list.indentationSize": "inherit",
+        "markdown.extension.toc.levels": "2..4",
+        "[markdown]": {
+            "editor.defaultFormatter": "yzhang.markdown-all-in-one",
+            "editor.indentSize": 4,
+            "editor.tabSize": 4
+        },
+        "[tsv]": {
+            "editor.insertSpaces": false
+        },
+        "compareFolders.excludeFilter": [
+            "**/.git",
+            "**/__pycache__",
+            "**/build"
+        ],
+        "cSpell.allowCompoundWords": true,
+        "cSpell.enabled": true,
+        "cSpell.words": [
+            "ckpt",
+            "cuda",
+            "cudnn",
+            "dtype",
+            "fourcc",
+            "gelu",
+            "ndarray",
+            "tqdm"
+        ],
+        "cSpell.spellCheckOnlyWorkspaceFiles": true,
+        "errorLens.excludeBySource": [ "cSpell" ],
+        "terminal.integrated.suggest.enabled": false,
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            // debug python
+            {
+                "name": "Python: Current File",
+                "type": "debugpy",
+                "request": "launch",
+                "program": "${file}",
+                "cwd": "${fileDirname}",
+                // "cwd": "${fileWorkspaceFolder}",
+                // "args": "${input:configPath}",
+                "args": "${command:pickArgs}",
+                // "justMyCode": false,
+                "console": "integratedTerminal"
+            },
+        ],
+        "inputs": [
+            {
+                "id": "configPath",
+                "type": "pickString",
+                "description": "Select commandline args",
+                "options": [
+                    "",
+                ]
+            }
+        ]
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [ ]
+    }
+}
