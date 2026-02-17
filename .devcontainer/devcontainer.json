@@ -1,13 +1,12 @@
 {
-    "name": "uv-devcontainer",
+    "name": "overcooked-custom",
     "image": "mcr.microsoft.com/devcontainers/base:trixie",
     "containerEnv": {
         "PYTHONUNBUFFERED": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
         "UV_CACHE_DIR": "/home/vscode/.cache/uv",
         "UV_LINK_MODE": "copy",
-        "UV_COMPILE_BYTECODE": "1",
-        "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+        "UV_COMPILE_BYTECODE": "1"
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -17,13 +16,11 @@
             "installOhMyZshConfig": "true"
         },
         "ghcr.io/rocker-org/devcontainer-features/apt-packages:1": {
-            "packages": "curl,wget,git,ca-certificates,build-essential"
+            "packages": "curl,wget,git,ca-certificates,build-essential,python3-tk"
         },
         "ghcr.io/va-h/devcontainers-features/uv:1": {
             "shellAutocompletion": true
-        },
-        "ghcr.io/devcontainers/features/node:1": { },
-        "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": { }
+        }
     },
     "runArgs": [ "--init", "--rm" ],
     "hostRequirements": {
@@ -35,20 +32,98 @@
     "postCreateCommand": "uv sync",
     "customizations": {
         "vscode": {
+            "settings": {
+                // Util
+                "editor.tabSize": 4,
+                "editor.formatOnSave": false,
+                "debug.inlineValues": "auto",
+                "zenMode.hideLineNumbers": false,
+                "git-graph.dialog.merge.noFastForward": false,
+                "git-graph.dialog.rebase.launchInteractiveRebase": false,
+                "git-graph.dialog.rebase.ignoreDate": false,
+                "git-graph.repository.fetchAndPrune": true,
+                "files.eol": "\n",
+                // Python
+                "[python]": {
+                    "editor.tabSize": 4,
+                    "editor.formatOnSave": true,
+                    "editor.defaultFormatter": "charliermarsh.ruff",
+                    "editor.wordBasedSuggestions": "off",
+                    "diffEditor.ignoreTrimWhitespace": false,
+                    "editor.codeActionsOnSave": {
+                        "source.organizeImports": "explicit"
+                    }
+                },
+                "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+                "python.terminal.activateEnvInCurrentTerminal": true,
+                "python.analysis.typeCheckingMode": "basic",
+                "python.analysis.diagnosticSeverityOverrides": {
+                    "reportInvalidTypeForm": "none"
+                },
+                "debugpy.showPythonInlineValues": false,
+                "ruff.importStrategy": "useBundled",
+                "ruff.interpreter": [ "${workspaceFolder}/.venv/bin/python" ],
+                // Json
+                "[json][jsonc]": {
+                    "editor.formatOnSave": true,
+                    "editor.defaultFormatter": "esbenp.prettier-vscode"
+                },
+                "prettier.tabWidth": 4,
+                // Yaml
+                "[yaml]": {
+                    "editor.defaultFormatter": "esbenp.prettier-vscode",
+                    "prettier.tabWidth": 2,
+                    "editor.formatOnSave": true,
+                    "editor.insertSpaces": true,
+                    "editor.tabSize": 4,
+                    "editor.indentSize": 2,
+                    "editor.autoIndent": "advanced"
+                },
+                // Markdown
+                "markdownlint.config": { "MD007": { "indent": 4 } },
+                "markdown.extension.tableFormatter.normalizeIndentation": true,
+                "markdown.extension.list.indentationSize": "inherit",
+                "markdown.extension.toc.levels": "2..4",
+                "[markdown]": {
+                    "editor.defaultFormatter": "yzhang.markdown-all-in-one",
+                    "editor.indentSize": 4,
+                    "editor.tabSize": 4
+                },
+                "[tsv]": {
+                    "editor.insertSpaces": false
+                },
+                "compareFolders.excludeFilter": [
+                    "**/.git",
+                    "**/__pycache__",
+                    "**/build"
+                ],
+                "cSpell.allowCompoundWords": true,
+                "cSpell.enabled": true,
+                "cSpell.words": [
+                    "ckpt",
+                    "cuda",
+                    "cudnn",
+                    "dtype",
+                    "fourcc",
+                    "gelu",
+                    "ndarray",
+                    "tqdm"
+                ],
+                "cSpell.spellCheckOnlyWorkspaceFiles": true,
+                "errorLens.excludeBySource": [ "cSpell" ],
+                "terminal.integrated.suggest.enabled": false,
+            },
             "extensions": [
                 "ms-python.python",
                 "charliermarsh.ruff",
                 "mhutchie.git-graph",
                 "tamasfe.even-better-toml",
                 "oderwat.indent-rainbow",
-                "esbenp.prettier-vscode"
+                "esbenp.prettier-vscode",
+                "yzhang.markdown-all-in-one"
             ]
         }
     },
-    // "initializeCommand": "mkdir -p ${localEnv:HOME}/.claude && touch ${localEnv:HOME}/.claude/CLAUDE.md",
     "mounts": [
-        // "source=shell_history-${devcontainerId},target=/shell_history,type=volume",
-        // "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
-        // "source=${localEnv:HOME}/.claude/CLAUDE.md,target=/home/vscode/.claude/CLAUDE.md,type=bind"
     ]
 }

@@ -1,7 +1,61 @@
 [project]
-name = "uv-template"
+name = "overcooked-custom"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+    "distrax>=0.1.7",
+    "flax>=0.12.3",
+    "hydra-core>=1.3.2",
+    "imageio>=2.37.2",
+    "jax[cuda12]>=0.9.0.1",
+    "matplotlib>=3.10.8",
+    "numpy>=2.3.5",
+    "optax>=0.2.6",
+    "orbax>=0.1.9",
+    "pyyaml>=6.0.3",
+    "tqdm>=4.67.3",
+]
+
+[tool.ruff]
+target-version = "py311"
+select = ["ALL"]
+ignore = [
+    "ANN002",  # missing-type-args
+    "ANN003",  # missing-type-kwargs
+    "ANN2",    # missing-return-type
+    "S101",    # Use of `assert` detected
+    "B905",    # zip() without an explicit strict= parameter
+    "COM812",  #	Trailing comma missing
+    "FIX002", # Line contains TODO, consider resolving the issue
+    "G004", # Logging statement uses f-string
+    "INP001", # implicit namespace package.
+    "TD002", # Missing author in TODO
+    "TD003", # Missing issue link for this TODO
+    "PTH123",  # open() should be replaced by Path.open()
+    "D1",      # Missing docstring
+    "PLC1901", # compare-to-empty-string
+    # "PLR2004", # magic-value-comparison
+    "UP015", # Unnecessary mode argument
+    "RUF001", # 全角記号など`ambiguous unicode character`も使いたいため
+    "RUF002", # 全角記号など`ambiguous unicode character`も使いたいため
+    "RUF003", # 全角記号など`ambiguous unicode character`も使いたいため
+    "TRY002", #	Create your own exception
+    "TRY003",
+]
+line-length = 120 # The line length to use when enforcing long-lines violations (like E501) and at which isort and the formatter prefers to wrap lines.
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.pydocstyle]
+convention = "google"
+
+[tool.ruff.pylint]
+max-args = 10 # Maximum number of arguments allowed for a function or method definition (see PLR0913).
+max-returns = 10 # Maximum number of return statements allowed for a function or method body (see PLR0911).
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10 # The maximum McCabe complexity to allow before triggering C901 errors.
+
