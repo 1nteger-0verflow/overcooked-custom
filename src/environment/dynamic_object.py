@@ -50,9 +50,7 @@ class DynamicObject(IntEnum):
             obj, count = x
             return (obj >> 2, count + (obj & 0x3))
 
-        _, count = jax.lax.while_loop(
-            lambda x: x[0] > 0, _count_ingredients, initial_val
-        )
+        _, count = jax.lax.while_loop(lambda x: x[0] > 0, _count_ingredients, initial_val)
         return count
 
     @staticmethod
@@ -67,46 +65,27 @@ class DynamicObject(IntEnum):
     @staticmethod
     def set_count(obj, new_count):
         # 個数のみ指定の値に変える
-        return ((obj >> COUNTS_BIT_WIDTH) << COUNTS_BIT_WIDTH) + (
-            new_count & (2**COUNTS_BIT_WIDTH - 1)
-        )
+        return ((obj >> COUNTS_BIT_WIDTH) << COUNTS_BIT_WIDTH) + (new_count & (2**COUNTS_BIT_WIDTH - 1))
 
     @staticmethod
     def pick(obj):
         # 皿、料理、素材を１つ取り出したときの取り出したものと残りのものを返す
         current_count = DynamicObject.get_count(obj)
         return jax.lax.switch(
-            jnp.argmax(
-                jnp.array(
-                    [
-                        current_count < 1,
-                        current_count == 1,
-                        current_count > 1,
-                    ]
-                )
-            ),
+            jnp.argmax(jnp.array([current_count < 1, current_count == 1, current_count > 1])),
             [
                 lambda: (DynamicObject.EMPTY, obj),
                 lambda: (obj, DynamicObject.EMPTY),
-                lambda: (
-                    DynamicObject.set_count(obj, 1),
-                    DynamicObject.set_count(obj, current_count - 1),
-                ),
+                lambda: (DynamicObject.set_count(obj, 1), DynamicObject.set_count(obj, current_count - 1)),
             ],
         )
 
     @staticmethod
-    def place(
-        stack, obj
-    ):  # stack: 既に置いてあるもの、 obj: エージェントが置こうとしているもの
+    def place(stack, obj):  # stack: 既に置いてあるもの、 obj: エージェントが置こうとしているもの
         return jax.lax.cond(
-            ((stack >> COUNTS_BIT_WIDTH) - (obj >> COUNTS_BIT_WIDTH) == 0)
-            | (stack == DynamicObject.EMPTY),
+            ((stack >> COUNTS_BIT_WIDTH) - (obj >> COUNTS_BIT_WIDTH) == 0) | (stack == DynamicObject.EMPTY),
             # 個数だけが違う場合(同種のオブジェクト)は、複数個置くことが可能
-            lambda: (
-                DynamicObject.EMPTY,
-                DynamicObject.set_count(obj, DynamicObject.get_count(stack) + 1),
-            ),
+            lambda: (DynamicObject.EMPTY, DynamicObject.set_count(obj, DynamicObject.get_count(stack) + 1)),
             # 違う種類のものだった場合は置けないのでそのまま
             lambda: (obj, stack),
         )
@@ -120,11 +99,7 @@ class DynamicObject(IntEnum):
             cond = jnp.arange(MAX_INGREDIENTS)
             cond = (cond >= pos) & (res == -1) & (cond < pos + count)
 
-            res = jnp.where(
-                cond,
-                idx,
-                res,
-            )
+            res = jnp.where(cond, idx, res)
 
             return (obj >> 2, pos + count, idx + 1, res)
 
@@ -169,11 +144,7 @@ class DynamicObject(IntEnum):
 
     @staticmethod
     def create_dirt(dirtiness: jnp.ndarray):
-        return jax.lax.cond(
-            dirtiness > 0,
-            lambda: DynamicObject.DIRT | dirtiness,
-            lambda: 0,
-        )
+        return jax.lax.cond(dirtiness > 0, lambda: DynamicObject.DIRT | dirtiness, lambda: 0)
 
     @staticmethod
     def is_dirt(obj):
@@ -185,12 +156,7 @@ class DynamicObject(IntEnum):
             new_dirtiness = jnp.clip(DynamicObject.get_count(val) - efficiency, min=0)
             return DynamicObject.create_dirt(new_dirtiness)
 
-        return jax.lax.cond(
-            obj & DynamicObject.DIRT,
-            _clean,
-            lambda x: x,
-            obj,
-        )
+        return jax.lax.cond(obj & DynamicObject.DIRT, _clean, lambda x: x, obj)
 
     @staticmethod
     def decode(obj):
@@ -201,27 +167,13 @@ class DynamicObject(IntEnum):
         ingredients = DynamicObject.get_ingredient_idx_list_jit(obj)
         if obj & DynamicObject.DIRT > 0:
             expr += f"汚れ レベル{count}"
-        elif (
-            len(ingredients) == 3
-            and (obj & DynamicObject.COOKED > 0)
-            and (obj & DynamicObject.PLATE > 0)
-        ):
-            expr += "料理/皿: " + ",".join(
-                [str(ingredient) for ingredient in ingredients]
-            )
+        elif len(ingredients) == 3 and (obj & DynamicObject.COOKED > 0) and (obj & DynamicObject.PLATE > 0):
+            expr += "料理/皿: " + ",".join([str(ingredient) for ingredient in ingredients])
             expr += f"（残り：{DynamicObject.get_count(obj)}）"
-        elif (
-            len(ingredients) == 3
-            and (obj & DynamicObject.COOKED > 0)
-            and (obj & DynamicObject.PLATE == 0)
-        ):
-            expr += "調理済: " + ",".join(
-                [str(ingredient) for ingredient in ingredients]
-            )
+        elif len(ingredients) == 3 and (obj & DynamicObject.COOKED > 0) and (obj & DynamicObject.PLATE == 0):
+            expr += "調理済: " + ",".join([str(ingredient) for ingredient in ingredients])
         elif len(ingredients) == 3 and (DynamicObject.COOKED == 0):
-            expr += "調理中: " + ",".join(
-                [str(ingredient) for ingredient in ingredients]
-            )
+            expr += "調理中: " + ",".join([str(ingredient) for ingredient in ingredients])
         elif len(ingredients) == 2 or len(ingredients) == 1:
             expr += "食材: " + ",".join([str(ingredient) for ingredient in ingredients])
         elif obj & DynamicObject.PLATE > 0:

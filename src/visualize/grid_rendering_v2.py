@@ -3,28 +3,20 @@ import jax.numpy as jnp
 
 
 def downsample(img, factor):
-    """
-    Downsample an image along both dimensions by some factor
-    """
+    """Downsample an image along both dimensions by some factor"""
     assert img.shape[0] % factor == 0
     assert img.shape[1] % factor == 0
 
-    img = img.reshape(
-        [img.shape[0] // factor, factor, img.shape[1] // factor, factor, 3]
-    )
+    img = img.reshape([img.shape[0] // factor, factor, img.shape[1] // factor, factor, 3])
     img = img.mean(axis=3)
     img = img.mean(axis=1)
 
     # convert back to uint8
-    img = img.astype(jnp.uint8)
-
-    return img
+    return img.astype(jnp.uint8)
 
 
 def fill_coords(img, fn, color):
-    """
-    Fill pixels of an image with coordinates matching a filter function
-    """
+    """Fill pixels of an image with coordinates matching a filter function."""
 
     def _mask_fn(y, x):
         yf = (y + 0.5) / img.shape[0]
@@ -125,10 +117,6 @@ def point_in_triangle(a, b, c):
 
 
 def highlight_img(img, color=(255, 255, 255), alpha=0.30):
-    """
-    Add highlighting to an image
-    """
+    """Add highlighting to an image."""
     blend_img = img + alpha * (jnp.array(color, dtype=jnp.uint8) - img)
-    res_img = jnp.clip(blend_img, 0, 255).astype(jnp.uint8)
-
-    return res_img
+    return jnp.clip(blend_img, 0, 255).astype(jnp.uint8)

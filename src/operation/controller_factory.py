@@ -6,16 +6,15 @@ from operation.random_input import RandomInput
 from operation.replay_log import ReplayLog
 
 
-def create_controller(
-    operation: DictConfig, agent_id: int, num_actions: int, verbose: bool, confirm: bool
-):
-    optype = list(operation.keys())[0]
+def create_controller(operation: DictConfig, agent_id: int, num_actions: int, verbose: bool, confirm: bool):
+    optype = next(iter(operation.keys()))
 
     if optype == "keyboard":
         return KeyboardInput(agent_id, verbose, confirm)
-    elif optype == "random":
+    if optype == "random":
         return RandomInput(agent_id, num_actions)
-    elif optype == "replay":
+    if optype == "replay":
         return ReplayLog(agent_id, operation[optype])
-    elif optype == "ippo":
+    if optype == "ippo":
         return IPPOModelInput(agent_id, operation[optype], num_actions)
+    raise

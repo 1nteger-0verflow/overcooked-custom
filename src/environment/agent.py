@@ -24,23 +24,15 @@ class Agent(PyTreeNode):
     # エージェント1体ずつ処理されるためposは1-dimになる
     def move_in_bounds(self, dir: jnp.ndarray, height: int, width: int):
         new_pos = self.pos + dir
-        return jnp.array(
-            [jnp.clip(new_pos[0], 0, height - 1), jnp.clip(new_pos[1], 0, width - 1)]
-        )
+        return jnp.array([jnp.clip(new_pos[0], 0, height - 1), jnp.clip(new_pos[1], 0, width - 1)])
 
     def modify_action(self, action: int):
-        return jax.lax.cond(
-            action - Actions.PICK_PLACE_BASE < self.capacity,
-            lambda: action,
-            lambda: -1,
-        )
+        return jax.lax.cond(action - Actions.PICK_PLACE_BASE < self.capacity, lambda: action, lambda: -1)
 
     @jax.jit
     def compute_view_box(self, height: int, width: int) -> jax.Array:
         # レイアウト全体のサイズを受け取って、レイアウト内でエージェントの観測できる範囲をy_min, y_max, x_min, x_maxで求める
-        def _compute(
-            yx: jnp.ndarray, dir: jnp.ndarray, view_size: jnp.ndarray
-        ) -> jax.Array:
+        def _compute(yx: jnp.ndarray, dir: jnp.ndarray, view_size: jnp.ndarray) -> jax.Array:
             fwd_view, side_view = view_size
             # 向きによる視野範囲を計算（レイアウトは考慮しない）
             # x_min = pos.x + coeff1*side_view + coeff2*fwd_view などで計算する
@@ -74,9 +66,7 @@ class Agent(PyTreeNode):
             bounded_x_max = jnp.clip(x_max + 1, max=width)
             bounded_y_min = jnp.clip(y_min, min=0)
             bounded_y_max = jnp.clip(y_max + 1, max=height)
-            return jnp.array(
-                [bounded_x_min, bounded_x_max, bounded_y_min, bounded_y_max]
-            )
+            return jnp.array([bounded_x_min, bounded_x_max, bounded_y_min, bounded_y_max])
 
         return jax.vmap(_compute)(self.pos, self.dir, self.view_sizes)
 
@@ -90,10 +80,7 @@ class Agent(PyTreeNode):
                 ymin,
                 ymax,
                 lambda y, observed: jax.lax.fori_loop(
-                    xmin,
-                    xmax,
-                    lambda x, observed: observed.at[idx, y, x].set(time),
-                    observed,
+                    xmin, xmax, lambda x, observed: observed.at[idx, y, x].set(time), observed
                 ),
                 observed,
             )
@@ -101,9 +88,7 @@ class Agent(PyTreeNode):
 
         num_agents = self.dir.shape[0]
         new_observed, _ = jax.lax.scan(
-            _update_observed_area,
-            self.grid_observed_step,
-            (observable_area, jnp.arange(num_agents)),
+            _update_observed_area, self.grid_observed_step, (observable_area, jnp.arange(num_agents))
         )
         return self.replace(grid_observed_step=new_observed)
 

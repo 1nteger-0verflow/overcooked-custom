@@ -31,9 +31,7 @@ class InteractiveOvercookedCustom:
         self.key = jax.random.wrap_key_data(jnp.array(option.seed, dtype=jnp.uint32))
         self.env = OvercookedCustom(config.env, option.random_agent_position)
         self.viz = OvercookedCustomVisualizer()
-        self.controller = Controller(
-            self.env, config.interface, self.verbose, option.confirm
-        )
+        self.controller = Controller(self.env, config.interface, self.verbose, option.confirm)
 
         if self.verbose:
             print(f"取りうるアクションの種類: {self.env.num_actions}")
@@ -88,10 +86,7 @@ class InteractiveOvercookedCustom:
 
     def _redraw(self):
         if self.visualize:
-            self.viz.render(
-                self.state,
-                title=f"{self.state.time} / {self.env.max_steps} step",
-            )
+            self.viz.render(self.state, title=f"{self.state.time} / {self.env.max_steps} step")
 
     def _reset(self):
         if self.log:
@@ -116,9 +111,7 @@ class InteractiveOvercookedCustom:
         if self.profile:
             start = time.perf_counter()
         self.key, subkey = jax.random.split(self.key)
-        obs, state, reward, shaped_reward, done = self.env.step_env(
-            self.state, actions, subkey
-        )
+        obs, state, reward, shaped_reward, done = self.env.step_env(self.state, actions, subkey)
         if self.profile:
             end = time.perf_counter()
             print(f"elapsed time: {(end - start) * 1000: .3f} [msec]")
@@ -131,12 +124,7 @@ class InteractiveOvercookedCustom:
                 jax.debug.print("{}", state, ordered=True)
                 jax.debug.print("-" * 60, ordered=True)
                 jax.debug.print("■■ 報酬 ■■", ordered=True)
-                jax.debug.print(
-                    "reward: {},  shaped_reward: {}",
-                    reward,
-                    shaped_reward,
-                    ordered=True,
-                )
+                jax.debug.print("reward: {},  shaped_reward: {}", reward, shaped_reward, ordered=True)
                 jax.debug.print("-" * 60, ordered=True)
                 jax.debug.print("■■ 観測 ■■", ordered=True)
                 jax.debug.print("schedule\n{}", obs["schedule"], ordered=True)
@@ -166,11 +154,7 @@ class InteractiveOvercookedCustom:
             actions = jnp.array(self.action_log, dtype=jnp.int8)
             init_key = jax.random.key_data(self.init_key)
             self.log_dir.mkdir(exist_ok=True, parents=True)
-            filename = (
-                f"action_log_iter{iter_num}.npz"
-                if iter_num is not None
-                else "action_log.npz"
-            )
+            filename = f"action_log_iter{iter_num}.npz" if iter_num is not None else "action_log.npz"
             log_file = self.log_dir / filename
             jnp.savez(log_file, actions=actions, init_key=init_key)
 

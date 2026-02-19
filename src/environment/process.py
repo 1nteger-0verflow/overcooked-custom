@@ -1,23 +1,14 @@
-from typing import Tuple
-
 import jax
 import jax.numpy as jnp
 from omegaconf import DictConfig
 
 from environment.actions import Actions
 from environment.agent import Agent
-from environment.customer import (
-    Customer,
-    CustomerStatus,
-    RegisterLine,
-)
+from environment.customer import Customer, CustomerStatus, RegisterLine
 from environment.dynamic_object import DynamicObject
 from environment.layouts import Layout
 from environment.menus import MenuList
-from environment.state import (
-    Channel,
-    State,
-)
+from environment.state import Channel, State
 from environment.static_object import StaticObject
 
 
@@ -37,26 +28,16 @@ class Processor:
         self.dirt_appear_rate = config.parameter.dirt_appear_rate
 
     @jax.jit(static_argnums=(0,))
-    def step(
-        self, key: jax.Array, state: State, actions: jax.Array
-    ) -> Tuple[State, float, dict[str, float]]:
+    def step(self, key: jax.Array, state: State, actions: jax.Array) -> tuple[State, float, dict[str, float]]:
         key, interact_key = jax.random.split(key)
         # Move action:
         state = self.update_positions(state, actions)
         # interaction between agent and environment
-        (
-            state,
-            reward,
-            shaped_rewards,
-        ) = self.execute_interaction(state, actions, interact_key)
+        (state, reward, shaped_rewards) = self.execute_interaction(state, actions, interact_key)
         # 時間経過による変化(客の状態遷移、汚れの発生、調理・食事の進行)
         state = self.update_step(state, key)
 
-        return (
-            state,
-            reward,
-            shaped_rewards,
-        )
+        return (state, reward, shaped_rewards)
 
     def update_positions(self, state: State, actions: jax.Array) -> State:
         # 1. move agent to new position (if possible on the grid)
@@ -66,9 +47,7 @@ class Processor:
         # 3. prevent swapping
         new_agents = self.prevent_swapping(state, new_agents)
         # 4. update view area
-        new_agents = new_agents.update_observed_grid(
-            state.time, self.layout.height, self.layout.width
-        )
+        new_agents = new_agents.update_observed_grid(state.time, self.layout.height, self.layout.width)
         # ここまでの処理で更新後のエージェント位置は確定するので状態に反映させる
         return state.replace(agents=new_agents)
 
@@ -91,40 +70,26 @@ class Processor:
 
                 return agent.replace(pos=new_pos, dir=dir)
 
-            return jax.lax.cond(
-                jnp.all(direction == jnp.array([0, 0])),
-                lambda a, _: a,
-                _move,
-                agent,
-                direction,
-            )
+            return jax.lax.cond(jnp.all(direction == jnp.array([0, 0])), lambda a, _: a, _move, agent, direction)
 
-        new_agents = jax.vmap(_move_wrapper)(state.agents, actions)
-        return new_agents
+        return jax.vmap(_move_wrapper)(state.agents, actions)
 
     def resolve_collisions(self, state: State, new_agents: Agent) -> Agent:
         # エージェント同士が衝突しないようにする
         def _masked_positions(agent_mask: jax.Array):
-            return jax.vmap(
-                lambda is_collide, cur_pos, new_pos: jax.lax.select(
-                    is_collide, cur_pos, new_pos
-                )
-            )(agent_mask, state.agents.pos, new_agents.pos)
+            return jax.vmap(lambda is_collide, cur_pos, new_pos: jax.lax.select(is_collide, cur_pos, new_pos))(
+                agent_mask, state.agents.pos, new_agents.pos
+            )
 
         def _get_collisions(agent_mask: jax.Array):
             positions = _masked_positions(agent_mask)
 
             # 移動後の各マス上のエージェント数>1なら衝突あり
             collision_grid = jnp.zeros((self.height, self.width))
-            collision_grid, _ = jax.lax.scan(
-                lambda grid, pos: (grid.at[*pos].add(1), None),
-                collision_grid,
-                positions,
-            )
+            collision_grid, _ = jax.lax.scan(lambda grid, pos: (grid.at[*pos].add(1), None), collision_grid, positions)
 
             collision_mask = collision_grid > 1
-            collisions = jax.vmap(lambda p: collision_mask[*p])(positions)
-            return collisions
+            return jax.vmap(lambda p: collision_mask[*p])(positions)
 
         initial_agent_mask = jnp.zeros((self.num_agents,), dtype=bool)
         agent_mask = jax.lax.while_loop(
@@ -140,11 +105,9 @@ class Processor:
     def prevent_swapping(self, state: State, new_agents: Agent) -> Agent:
         # エージェントがすり抜けないようにする
         def _masked_positions(agent_mask: jax.Array):
-            return jax.vmap(
-                lambda is_collide, cur_pos, new_pos: jax.lax.select(
-                    is_collide, cur_pos, new_pos
-                )
-            )(agent_mask, state.agents.pos, new_agents.pos)
+            return jax.vmap(lambda is_collide, cur_pos, new_pos: jax.lax.select(is_collide, cur_pos, new_pos))(
+                agent_mask, state.agents.pos, new_agents.pos
+            )
 
         def _compute_swapped_agents(original_positions, new_positions):
             original_pos_expanded = jnp.expand_dims(original_positions, axis=0)
@@ -157,77 +120,40 @@ class Processor:
 
             swap_pairs = jnp.logical_and(swap_mask, swap_mask.T)
 
-            swapped_agents = jnp.any(swap_pairs, axis=0)
-            return swapped_agents
+            return jnp.any(swap_pairs, axis=0)
 
         swap_mask = _compute_swapped_agents(state.agents.pos, new_agents.pos)
         new_agents = new_agents.replace(pos=_masked_positions(swap_mask))
 
         return new_agents
 
-    def execute_interaction(
-        self,
-        state: State,
-        actions: jax.Array,
-        interact_key: jax.Array,
-    ):
+    def execute_interaction(self, state: State, actions: jax.Array, interact_key: jax.Array):
         # Interact action:
         def _interact_wrapper(carry, x):
             agent, action = x
-            is_interact, storage_idx = Actions.interpret_interact(
-                agent.modify_action(action)
-            )
+            is_interact, storage_idx = Actions.interpret_interact(agent.modify_action(action))
 
-            def _interact(
-                carry: Tuple[State, float],
-                agent: Agent,
-            ):
+            def _interact(carry: tuple[State, float], agent: Agent):
                 state, reward = carry
 
-                (
-                    new_state,
-                    new_agent,
-                    interact_reward,
-                    shaped_reward,
-                ) = self.process_interact(
-                    state,
-                    agent,
-                    interact_key,
-                    storage_idx,
+                (new_state, new_agent, interact_reward, shaped_reward) = self.process_interact(
+                    state, agent, interact_key, storage_idx
                 )
 
-                carry = (
-                    new_state,
-                    reward + interact_reward,
-                )
+                carry = (new_state, reward + interact_reward)
                 return carry, (new_agent, shaped_reward)
 
-            return jax.lax.cond(
-                is_interact, _interact, lambda c, a: (c, (a, 0.0)), carry, agent
-            )
+            return jax.lax.cond(is_interact, _interact, lambda c, a: (c, (a, 0.0)), carry, agent)
 
         # エージェント1体ずつinteractionの処理
         carry = (state, 0.0)
         xs = (state.agents, actions)
         # returnの1つ目はcarryが全ループを経たもの、2つ目はループごとの出力のstack
-        (
-            (new_state, reward),
-            (new_agents, shaped_rewards),
-        ) = jax.lax.scan(_interact_wrapper, carry, xs)
+        ((new_state, reward), (new_agents, shaped_rewards)) = jax.lax.scan(_interact_wrapper, carry, xs)
 
-        return (
-            new_state.replace(agents=new_agents),
-            reward,
-            shaped_rewards,
-        )
+        return (new_state.replace(agents=new_agents), reward, shaped_rewards)
 
-    def process_interact(
-        self,
-        state: State,
-        agent: Agent,
-        key: jax.Array,
-        storage_idx: jax.Array,
-    ):
+    def process_interact(self, state: State, agent: Agent, key: jax.Array, storage_idx: jax.Array):
         """Assume agent took interact actions. Result depends on what agent is facing and what it is holding."""
         # 1体のエージェントの前方のセル1か所に対する処理
         inventory = agent.inventory[storage_idx]
@@ -239,18 +165,12 @@ class Processor:
         interact_extra = interact_cell[Channel.extra]
 
         def _no_op(state, agent):
-            return (
-                state,
-                agent,
-                0.0,
-                self.config.reward.penalty.ineffective_interaction,
-            )
+            return (state, agent, 0.0, self.config.reward.penalty.ineffective_interaction)
 
         def _deal_customer(state, agent):
             def _invite(customer, line):
                 new_customer, new_line, invite_reward = jax.lax.cond(
-                    jnp.greater(line.reserved_line_length, 0)
-                    | jnp.greater(line.line_length, 0),
+                    jnp.greater(line.reserved_line_length, 0) | jnp.greater(line.line_length, 0),
                     lambda: (
                         customer.append(state.time, line.reserved_line_length > 0),
                         line.dequeue(),
@@ -262,9 +182,7 @@ class Processor:
 
             def _refuse(customer, line):
                 refuse_reward = jax.lax.cond(
-                    line.line_length > 0,
-                    lambda: self.config.reward.shaped_reward.refuse_customer,
-                    lambda: 0.0,
+                    line.line_length > 0, lambda: self.config.reward.shaped_reward.refuse_customer, lambda: 0.0
                 )
                 new_line = line.replace(
                     line_length=jnp.clip(line.line_length - 1, min=0),
@@ -273,18 +191,9 @@ class Processor:
                 return customer, new_line, refuse_reward
 
             new_customer, new_line, shaped_reward = jax.lax.cond(
-                state.customer.empty_count > 0,
-                _invite,
-                _refuse,
-                state.customer,
-                state.line,
+                state.customer.empty_count > 0, _invite, _refuse, state.customer, state.line
             )
-            return (
-                state.replace(customer=new_customer, line=new_line),
-                agent,
-                0.0,
-                shaped_reward,
-            )
+            return (state.replace(customer=new_customer, line=new_line), agent, 0.0, shaped_reward)
 
         def _take_order(state, agent):
             customer = state.customer
@@ -300,9 +209,7 @@ class Processor:
                 ),
                 lambda: (customer.status, customer.time, customer.ordered_menu, 0.0),
             )
-            new_customer = customer.replace(
-                status=new_status, time=new_time, ordered_menu=new_order
-            )
+            new_customer = customer.replace(status=new_status, time=new_time, ordered_menu=new_order)
 
             return state.replace(customer=new_customer), agent, 0.0, order_reward
 
@@ -312,64 +219,33 @@ class Processor:
             picked_up, new_customer = customer.cleanup(tableID)
             new_inventory = agent.inventory.at[storage_idx].set(picked_up)
             new_agent = agent.replace(inventory=new_inventory)
-            return (
-                state.replace(customer=new_customer),
-                new_agent,
-                0.0,
-                self.config.reward.shaped_reward.clean_table,
-            )
+            return (state.replace(customer=new_customer), new_agent, 0.0, self.config.reward.shaped_reward.clean_table)
 
         def _add_ingredient(state, agent):
             def _start_cooking(inventory):
-                new_obj = DynamicObject.add_ingredient(
-                    interact_object, inventory[storage_idx]
-                )
+                new_obj = DynamicObject.add_ingredient(interact_object, inventory[storage_idx])
                 is_correct_recipe, cooking_duration = self.menu.get_duration(new_obj)
                 # cooking_durationを指定範囲内の倍率でばらつかせる
                 range_min, range_max = self.config.parameter.cooking_duration_range
-                duration_coeff = jax.random.uniform(
-                    key, (), minval=range_min, maxval=range_max
-                )
-                cooking_duration = jnp.floor(cooking_duration * duration_coeff).astype(
-                    int
-                )
-                new_cell = (
-                    interact_cell.at[Channel.obj]
-                    .set(new_obj)
-                    .at[Channel.extra]
-                    .set(cooking_duration)
-                )
+                duration_coeff = jax.random.uniform(key, (), minval=range_min, maxval=range_max)
+                cooking_duration = jnp.floor(cooking_duration * duration_coeff).astype(int)
+                new_cell = interact_cell.at[Channel.obj].set(new_obj).at[Channel.extra].set(cooking_duration)
                 return new_cell, inventory.at[storage_idx].set(DynamicObject.EMPTY)
 
             def _add(inventory):
-                new_obj = DynamicObject.add_ingredient(
-                    interact_object, inventory[storage_idx]
-                )
+                new_obj = DynamicObject.add_ingredient(interact_object, inventory[storage_idx])
                 new_cell = interact_cell.at[Channel.obj].set(new_obj)
                 return new_cell, inventory.at[storage_idx].set(DynamicObject.EMPTY)
 
             pot_is_cooking = interact_extra > 0
             pot_is_cooked = interact_object & DynamicObject.COOKED != 0
             pot_is_full = pot_is_cooking | pot_is_cooked
-            pot_is_full_after_drop = (
-                DynamicObject.ingredient_count(interact_object) == 2
-            )
+            pot_is_full_after_drop = DynamicObject.ingredient_count(interact_object) == 2
             pot_is_idle = ~pot_is_cooking * ~pot_is_cooked * ~pot_is_full_after_drop
             new_cell, new_inventory = jax.lax.switch(
-                jnp.argmax(
-                    jnp.array(
-                        [
-                            pot_is_full,
-                            pot_is_full_after_drop,
-                            pot_is_idle,
-                        ]
-                    )
-                ),
+                jnp.argmax(jnp.array([pot_is_full, pot_is_full_after_drop, pot_is_idle])),
                 [
-                    lambda _: (
-                        state.grid[*fwd_pos],
-                        agent.inventory,
-                    ),  # 調理中、調理済みのとき何もしない
+                    lambda _: (state.grid[*fwd_pos], agent.inventory),  # 調理中、調理済みのとき何もしない
                     _start_cooking,  # 3つ目の食材を追加し、調理を開始する
                     _add,  # 食材を追加する
                 ],
@@ -383,21 +259,12 @@ class Processor:
 
         def _put_food_on_plate(state, agent):
             def _do_plating(inventory):
-                plated_food = inventory.at[storage_idx].set(
-                    interact_object | DynamicObject.PLATE
-                )
-                return (
-                    DynamicObject.EMPTY,
-                    plated_food,
-                    self.config.reward.shaped_reward.dish_pickup,
-                )
+                plated_food = inventory.at[storage_idx].set(interact_object | DynamicObject.PLATE)
+                return (DynamicObject.EMPTY, plated_food, self.config.reward.shaped_reward.dish_pickup)
 
             pot_is_cooked = interact_object & DynamicObject.COOKED != 0
             new_object, new_inventory, dish_reward = jax.lax.cond(
-                pot_is_cooked,
-                _do_plating,
-                lambda _: (interact_object, agent.inventory, 0.0),
-                agent.inventory,
+                pot_is_cooked, _do_plating, lambda _: (interact_object, agent.inventory, 0.0), agent.inventory
             )
             new_grid = state.grid.at[*fwd_pos, Channel.obj].set(new_object)
             new_agent = agent.replace(inventory=new_inventory)
@@ -413,23 +280,16 @@ class Processor:
                 is_correct_dish,
                 lambda: (
                     agent.inventory.at[storage_idx].set(DynamicObject.EMPTY),
-                    customer.put_dish_on_table(
-                        tableID, agent.inventory[storage_idx], correct_order_idx
-                    ),
+                    customer.put_dish_on_table(tableID, agent.inventory[storage_idx], correct_order_idx),
                 ),
-                lambda: (
-                    agent.inventory,
-                    customer,
-                ),
+                lambda: (agent.inventory, customer),
             )
             new_agent = agent.replace(inventory=new_inventory)
             # 経過時間により報酬を割り引く
             reward = (
                 is_correct_dish
                 * self.config.reward.delivery_reward
-                * jnp.clip(
-                    (1.0 - (state.time - customer.time[tableID]) / 100.0), min=0.0
-                )
+                * jnp.clip((1.0 - (state.time - customer.time[tableID]) / 100.0), min=0.0)
             )
             return state.replace(customer=new_customer), new_agent, reward, 0.0
 
@@ -438,46 +298,25 @@ class Processor:
             tableID = customer.get_tableID(fwd_pos)
 
             def _retrieve(customer):
-                idx = jnp.argmax(
-                    customer.food[tableID] == DynamicObject.USED | DynamicObject.PLATE
-                )
+                idx = jnp.argmax(customer.food[tableID] == DynamicObject.USED | DynamicObject.PLATE)
                 new_food = customer.food.at[tableID, idx].set(DynamicObject.EMPTY)
-                new_inventory = agent.inventory.at[storage_idx].set(
-                    DynamicObject.PLATE | DynamicObject.USED | 1
-                )
+                new_inventory = agent.inventory.at[storage_idx].set(DynamicObject.PLATE | DynamicObject.USED | 1)
                 return new_inventory, new_food
 
-            exists_empty_plate = (
-                jnp.sum(
-                    customer.food[tableID] == DynamicObject.USED | DynamicObject.PLATE
-                )
-                > 0
-            )
+            exists_empty_plate = jnp.sum(customer.food[tableID] == DynamicObject.USED | DynamicObject.PLATE) > 0
             new_inventory, new_food = jax.lax.cond(
-                exists_empty_plate,
-                _retrieve,
-                lambda _: (agent.inventory, customer.food),
-                customer,
+                exists_empty_plate, _retrieve, lambda _: (agent.inventory, customer.food), customer
             )
             plate_retrieve_reward = jax.lax.cond(
-                exists_empty_plate,
-                lambda: self.config.reward.shaped_reward.retrieve_plate,
-                lambda: 0.0,
+                exists_empty_plate, lambda: self.config.reward.shaped_reward.retrieve_plate, lambda: 0.0
             )
             new_agent = agent.replace(inventory=new_inventory)
             new_customer = customer.replace(food=new_food)
-            return (
-                state.replace(customer=new_customer),
-                new_agent,
-                0.0,
-                plate_retrieve_reward,
-            )
+            return (state.replace(customer=new_customer), new_agent, 0.0, plate_retrieve_reward)
 
         def _pickup(state, agent):
             picked_obj, remainings = DynamicObject.pick(interact_object)
-            new_grid = state.grid.at[fwd_pos[0], fwd_pos[1], Channel.obj].set(
-                remainings
-            )
+            new_grid = state.grid.at[fwd_pos[0], fwd_pos[1], Channel.obj].set(remainings)
             new_inventory = agent.inventory.at[storage_idx].set(picked_obj)
             new_agent = agent.replace(inventory=new_inventory)
             return state.replace(grid=new_grid), new_agent, 0.0, 0.0
@@ -489,9 +328,7 @@ class Processor:
             return state, new_agent, 0.0, 0.0
 
         def _place(state, agent):
-            placed_obj, stackings = DynamicObject.place(
-                interact_object, agent.inventory[storage_idx]
-            )
+            placed_obj, stackings = DynamicObject.place(interact_object, agent.inventory[storage_idx])
             new_grid = state.grid.at[*fwd_pos, Channel.obj].set(stackings)
             new_inventory = agent.inventory.at[storage_idx].set(placed_obj)
             new_agent = agent.replace(inventory=new_inventory)
@@ -520,20 +357,14 @@ class Processor:
             soaked_plate_count = DynamicObject.get_count(interact_object)
             plate_pile_pos = self.layout.plate_positions[0]
             plate_pile_obj = state.grid[*plate_pile_pos, Channel.obj]
-            clean_plate_count = DynamicObject.get_count(
-                state.grid[*plate_pile_pos, Channel.obj]
-            )
+            clean_plate_count = DynamicObject.get_count(state.grid[*plate_pile_pos, Channel.obj])
             new_grid, wash_reward = jax.lax.cond(
                 soaked_plate_count > 0,
                 lambda: (
                     state.grid.at[*fwd_pos, Channel.obj]
-                    .set(
-                        DynamicObject.set_count(interact_object, soaked_plate_count - 1)
-                    )
+                    .set(DynamicObject.set_count(interact_object, soaked_plate_count - 1))
                     .at[plate_pile_pos[0], plate_pile_pos[1], Channel.obj]
-                    .set(
-                        DynamicObject.set_count(plate_pile_obj, clean_plate_count + 1)
-                    ),
+                    .set(DynamicObject.set_count(plate_pile_obj, clean_plate_count + 1)),
                     self.config.reward.shaped_reward.wash_plate,
                 ),
                 lambda: (state.grid, 0.0),
@@ -547,40 +378,23 @@ class Processor:
                 new_customer = customer.leave(idx)
                 return new_customer, self.config.reward.shaped_reward.finish_payment
 
-            new_register = state.register.replace(
-                service_time=jnp.clip(state.register.service_time - 1, min=0)
-            )
+            new_register = state.register.replace(service_time=jnp.clip(state.register.service_time - 1, min=0))
             new_customer, payment_reward = jax.lax.cond(
-                new_register.service_time == 0,
-                _leave,
-                lambda _: (state.customer, 0.0),
-                state.customer,
+                new_register.service_time == 0, _leave, lambda _: (state.customer, 0.0), state.customer
             )
-            return (
-                state.replace(customer=new_customer, register=new_register),
-                agent,
-                0.0,
-                payment_reward,
-            )
+            return (state.replace(customer=new_customer, register=new_register), agent, 0.0, payment_reward)
 
         def _clean_dirt(state, agent):
             new_grid = state.grid.at[*fwd_pos].set(
                 jnp.array([interact_item, DynamicObject.clean_dirt(interact_object), 0])
             )
-            return (
-                state.replace(grid=new_grid),
-                agent,
-                0.0,
-                self.config.reward.shaped_reward.clean_dirt,
-            )
+            return (state.replace(grid=new_grid), agent, 0.0, self.config.reward.shaped_reward.clean_dirt)
 
         def _dispose_garbage(state, agent):
             inventory = agent.inventory[storage_idx]
             new_inventory = jax.lax.cond(
                 inventory & DynamicObject.PLATE,
-                lambda: DynamicObject.set_count(
-                    DynamicObject.PLATE | DynamicObject.USED, 1
-                ),
+                lambda: DynamicObject.set_count(DynamicObject.PLATE | DynamicObject.USED, 1),
                 lambda: DynamicObject.EMPTY,
             )
             new_inventory = agent.inventory.at[storage_idx].set(new_inventory)
@@ -603,9 +417,7 @@ class Processor:
         object_is_dish = interact_object & DynamicObject.COOKED > 0
         object_is_used_plate = interact_object & DynamicObject.USED > 0
         object_is_ingredient = DynamicObject.is_ingredient(interact_object)
-        object_is_pickable = (
-            object_is_plate | object_is_ingredient
-        )  # plateにdish, used_plateも含まれる
+        object_is_pickable = object_is_plate | object_is_ingredient  # plateにdish, used_plateも含まれる
         object_is_dirt = interact_object & DynamicObject.DIRT > 0
 
         # Booleans depending on what agent have
@@ -615,11 +427,7 @@ class Processor:
         inventory_is_plated = (inventory & DynamicObject.PLATE) > 0
         inventory_is_dish = inventory_is_cooked * inventory_is_plated
         inventory_is_used_plate = (inventory & DynamicObject.USED) > 0
-        inventory_is_new_plate = (
-            (inventory & DynamicObject.PLATE > 0)
-            & ~inventory_is_dish
-            & ~inventory_is_used_plate
-        )
+        inventory_is_new_plate = (inventory & DynamicObject.PLATE > 0) & ~inventory_is_dish & ~inventory_is_used_plate
 
         # Booleans depending on customer status
         customer_status = jax.lax.cond(
@@ -633,15 +441,13 @@ class Processor:
         is_customer_waiting_delivery = is_customer_waiting_food | is_customer_eating
         is_customer_waiting_check = customer_status == CustomerStatus.waiting_check
         is_customer_checking = customer_status == CustomerStatus.checking
-        is_plate_is_retrievable = (
-            is_customer_eating | is_customer_waiting_check | is_customer_checking
-        )
+        is_plate_is_retrievable = is_customer_eating | is_customer_waiting_check | is_customer_checking
         is_table_need_cleaning = customer_status == CustomerStatus.cleaning
 
         # Booleans depending on payment
-        is_register_executing = jnp.any(
-            state.customer.status == CustomerStatus.checking
-        ) | jnp.any(state.customer.status == CustomerStatus.waiting_check)
+        is_register_executing = jnp.any(state.customer.status == CustomerStatus.checking) | jnp.any(
+            state.customer.status == CustomerStatus.waiting_check
+        )
 
         # interact対象とエージェントの状態によって分岐
         # TODO: 分岐した時点でinteractionが成功するか決まっているかどうかが処理によって異なる
@@ -714,46 +520,21 @@ class Processor:
             _no_op,
         ]
 
-        (
-            new_state,
-            new_agent,
-            reward,
-            shaped_reward,
-        ) = jax.lax.switch(
-            branch_idx,
-            interact_functions,
-            state,
-            agent,
-        )
+        (new_state, new_agent, reward, shaped_reward) = jax.lax.switch(branch_idx, interact_functions, state, agent)
         # jax.debug.print("interact branch: {}, target_idx: {}", branches, branch_idx)
 
-        return (
-            new_state,
-            new_agent,
-            reward,
-            shaped_reward,
-        )
+        return (new_state, new_agent, reward, shaped_reward)
 
-    def update_step(
-        self,
-        state: State,
-        key: jax.Array,
-    ) -> State:
+    def update_step(self, state: State, key: jax.Array) -> State:
         grid_key, line_key, customer_key, cook_key, check_key = jax.random.split(key, 5)
         state = self.disturb_env(state, grid_key)
         state = self.arrive_customer(state, line_key)
         state = self.call_order(state, customer_key)
         state = self.progress_cooking(state, cook_key)
         state = self.progress_eating(state)
-        state = self.get_the_check(state, check_key)
+        return self.get_the_check(state, check_key)
 
-        return state
-
-    def disturb_env(
-        self,
-        state: State,
-        key: jax.Array,
-    ) -> State:
+    def disturb_env(self, state: State, key: jax.Array) -> State:
         grid = state.grid
         # 床に汚れがランダムに出現
         # 対象のマスを１つ選択し、次に汚れを発生させるかどうかを判定する
@@ -774,9 +555,7 @@ class Processor:
 
             return cell.at[Channel.obj].set(new_obj)
 
-        is_empty = (target_cell[Channel.env] == StaticObject.EMPTY) * (
-            target_cell[Channel.obj] == DynamicObject.EMPTY
-        )
+        is_empty = (target_cell[Channel.env] == StaticObject.EMPTY) * (target_cell[Channel.obj] == DynamicObject.EMPTY)
         new_cell = jax.lax.cond(is_empty, _appear_dirt, lambda x: x, target_cell)
         new_grid = grid.at[cell].set(new_cell)
 
@@ -788,11 +567,7 @@ class Processor:
         current_timezone_idx = jnp.argmax(temporal_rates[:, 0] > time) - 1
         return temporal_rates[current_timezone_idx, 1] / 100.0
 
-    def arrive_customer(
-        self,
-        state: State,
-        key: jax.Array,
-    ) -> State:
+    def arrive_customer(self, state: State, key: jax.Array) -> State:
         line = state.line
         current_step = state.time
         # JAXの配列はサイズが変わらない、array.at[n].set(value)として、nがサイズ以上の場合は変更されない
@@ -802,17 +577,13 @@ class Processor:
         is_arrived = (rn < thres) * (line.line_length < line.queued_time.shape[0])
         line_appended = line.queued_time.at[line.line_length].set(current_step)
         new_queued_time, new_line_length = jax.lax.cond(
-            is_arrived,
-            lambda: (line_appended, line.line_length + 1),
-            lambda: (line.queued_time, line.line_length),
+            is_arrived, lambda: (line_appended, line.line_length + 1), lambda: (line.queued_time, line.line_length)
         )
         # 予約時間になったとき、予約客を追加
         new_reserved_queued_time, new_reserved_line_length = jax.lax.cond(
             jnp.any(line.reserve_time == current_step),
             lambda: (
-                line.reserved_queued_time.at[line.reserved_line_length].set(
-                    current_step
-                ),
+                line.reserved_queued_time.at[line.reserved_line_length].set(current_step),
                 line.reserved_line_length + 1,
             ),
             lambda: (line.reserved_queued_time, line.reserved_line_length),
@@ -830,25 +601,17 @@ class Processor:
             customer, to_order, time = val
             # 着席してからのstep数で10%ずつ注文待ちに遷移する確率を増やす(10step以内に必ず注文する)
             new_status, new_time = jax.lax.cond(
-                (customer.status[i] == CustomerStatus.sitting)
-                & (to_order[i] < 0.1 * (time - customer.time[i])),
-                lambda: (
-                    customer.status.at[i].set(CustomerStatus.ordering),
-                    customer.time.at[i].set(time),
-                ),
+                (customer.status[i] == CustomerStatus.sitting) & (to_order[i] < 0.1 * (time - customer.time[i])),
+                lambda: (customer.status.at[i].set(CustomerStatus.ordering), customer.time.at[i].set(time)),
                 lambda: (customer.status, customer.time),
             )
             customer = customer.replace(status=new_status, time=new_time)
             return customer, to_order, time
 
         # 座っている客がorderを要求する
-        rn = jax.random.uniform(
-            key, (self.layout.num_customers,), minval=0.0, maxval=1.0
-        )
+        rn = jax.random.uniform(key, (self.layout.num_customers,), minval=0.0, maxval=1.0)
         # statusがsitting -> call orderに変わる
-        new_customer, _, _ = jax.lax.fori_loop(
-            0, state.customer.seat_count, _order, (state.customer, rn, state.time)
-        )
+        new_customer, _, _ = jax.lax.fori_loop(0, state.customer.seat_count, _order, (state.customer, rn, state.time))
         return state.replace(customer=new_customer)
 
     def progress_cooking(self, state: State, key: jax.Array) -> State:
@@ -856,41 +619,27 @@ class Processor:
         def _timestep_wrapper(cell):
             def _cook(cell):
                 is_cooking = cell[Channel.extra] > 0
-                new_extra = jax.lax.select(
-                    is_cooking, cell[Channel.extra] - 1, cell[Channel.extra]
-                )
+                new_extra = jax.lax.select(is_cooking, cell[Channel.extra] - 1, cell[Channel.extra])
                 finished_cooking = is_cooking * (new_extra == 0)
                 correct, volume = self.menu.get_volume(cell[Channel.obj])
                 # volumeを指定範囲内の倍率でばらつかせる
                 range_min, range_max = self.config.parameter.volume_range
-                volume_coeff = jax.random.uniform(
-                    key, (), minval=range_min, maxval=range_max
-                )
+                volume_coeff = jax.random.uniform(key, (), minval=range_min, maxval=range_max)
                 volume = jnp.floor(volume * volume_coeff).astype(int)
                 new_ingredients = jax.lax.cond(
                     finished_cooking,
-                    lambda: DynamicObject.set_count(
-                        cell[Channel.obj] | DynamicObject.COOKED, volume
-                    ),
+                    lambda: DynamicObject.set_count(cell[Channel.obj] | DynamicObject.COOKED, volume),
                     lambda: cell[Channel.obj],
                 )
 
                 return jnp.array([cell[Channel.env], new_ingredients, new_extra])
 
-            branches = jnp.array(
-                [
-                    StaticObject.POT == cell[Channel.env],
-                    1,
-                ]
-            )
+            branches = jnp.array([cell[Channel.env] == StaticObject.POT, 1])
             branch_idx = jnp.argmax(branches)
 
             return jax.lax.switch(
                 branch_idx,  # select index
-                [
-                    _cook,
-                    lambda x: x,
-                ],
+                [_cook, lambda x: x],
                 cell,  # operand
             )
 
@@ -922,9 +671,7 @@ class Processor:
 
         customer = state.customer
         # TODO: 全部の料理が来る前に食べ終わると、提供待ちの開始時間が更新され報酬が高くなるが良いか
-        new_food, new_time = jax.vmap(_eat)(
-            customer.status, customer.food, customer.time
-        )
+        new_food, new_time = jax.vmap(_eat)(customer.status, customer.food, customer.time)
 
         def _finish(obj):
             return jax.lax.cond(
@@ -936,27 +683,16 @@ class Processor:
         new_food = jax.vmap(jax.vmap(_finish))(new_food)
         food_remains = jnp.sum(DynamicObject.get_count(new_food), axis=1) > 0
         order_undelivered = jnp.sum(customer.ordered_menu >= 0, axis=1) > 0
-        meal_done = (
-            ~food_remains
-            & ~order_undelivered
-            & (customer.status == CustomerStatus.eating_food)
-        )
-        new_status = (
-            customer.status * ~meal_done + CustomerStatus.waiting_check * meal_done
-        )
+        meal_done = ~food_remains & ~order_undelivered & (customer.status == CustomerStatus.eating_food)
+        new_status = customer.status * ~meal_done + CustomerStatus.waiting_check * meal_done
         new_customer = customer.replace(status=new_status, food=new_food, time=new_time)
         return state.replace(customer=new_customer)
 
-    def get_the_check(
-        self,
-        state: State,
-        key: jax.Array,
-    ) -> State:
+    def get_the_check(self, state: State, key: jax.Array) -> State:
         def _start_checking(customer: Customer, register: RegisterLine):
             # 会計待ちになってからの時間が最も長い客席のindex
             dequeue_idx = jnp.argmax(
-                (customer.status == CustomerStatus.waiting_check)
-                * (state.time + 1 - customer.time)
+                (customer.status == CustomerStatus.waiting_check) * (state.time + 1 - customer.time)
             )
             new_status = customer.status.at[dequeue_idx].set(CustomerStatus.checking)
             new_time = customer.time.at[dequeue_idx].set(state.time)
@@ -964,16 +700,12 @@ class Processor:
             duration_max = self.config.parameter.check_time_max
             duration = jax.random.randint(key, (), minval=1, maxval=duration_max)
             new_customer = customer.replace(status=new_status, time=new_time)
-            new_register = register.replace(
-                queued_time=state.time, service_time=duration
-            )
+            new_register = register.replace(queued_time=state.time, service_time=duration)
             return new_customer, new_register
 
         customer = state.customer
         register = state.register
-        customers_waiting_check = (
-            jnp.sum(customer.status == CustomerStatus.waiting_check) > 0
-        )
+        customers_waiting_check = jnp.sum(customer.status == CustomerStatus.waiting_check) > 0
         register_is_free = register.service_time == 0
         new_customer, new_register = jax.lax.cond(
             customers_waiting_check & register_is_free,

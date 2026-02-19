@@ -43,19 +43,15 @@ class Customer(PyTreeNode):
         }
 
         def _discribe_order(idx):
-            if self.status[idx] in [
-                CustomerStatus.waiting_food,
-                CustomerStatus.eating_food,
-            ]:
+            if self.status[idx] in [CustomerStatus.waiting_food, CustomerStatus.eating_food]:
                 return ", 注文: " + ",".join(
                     [
-                        f"(#{str(order)}){self.menu.order_to_ingredients(order)}"
+                        f"(#{order!s}){self.menu.order_to_ingredients(order)}"
                         for order in self.ordered_menu[idx]
                         if order >= 0
                     ]
                 )
-            else:
-                return ""
+            return ""
 
         def _discribe_food(idx):
             if (
@@ -64,11 +60,8 @@ class Customer(PyTreeNode):
                 or self.status[idx] == CustomerStatus.checking
                 or self.status[idx] == CustomerStatus.cleaning
             ):
-                return ", 配膳: " + ", ".join(
-                    [DynamicObject.decode(food) for food in self.food[idx] if food != 0]
-                )
-            else:
-                return ""
+                return ", 配膳: " + ", ".join([DynamicObject.decode(food) for food in self.food[idx] if food != 0])
+            return ""
 
         def _discribe_table(idx, table_pos, status, time):
             discription = f"[Table {idx}]({table_pos}):"
@@ -80,9 +73,7 @@ class Customer(PyTreeNode):
 
         expr = "-" * 60 + "\n"
         expr += "■■ 客席状況 ■■\n"
-        for i, (table_pos, status, time) in enumerate(
-            zip(self.table_pos, self.status, self.time)
-        ):
+        for i, (table_pos, status, time) in enumerate(zip(self.table_pos, self.status, self.time)):
             expr += _discribe_table(i, table_pos, status, time)
         return expr
 
@@ -117,33 +108,18 @@ class Customer(PyTreeNode):
     def order(self, idx: int, menu: MenuList, key: jax.Array):
         # key, *_ = jax.random.split(key, idx)   # 同じstepに複数エージェントが同時に注文を取るケースに対応
         order_max = min(menu.num_menus, self.ordered_menu.shape[1])
-        ordernum = jax.random.randint(
-            key, (), minval=1, maxval=order_max + 1
-        )  # 注文件数を決める
-        order_menus = jax.random.choice(
-            key, jnp.arange(menu.num_menus), shape=(order_max,), replace=False
-        )
-        order_menus = jax.lax.fori_loop(
-            ordernum,
-            self.ordered_menu.shape[1],
-            lambda i, o: o.at[i].set(-1),
-            order_menus,
-        )
+        ordernum = jax.random.randint(key, (), minval=1, maxval=order_max + 1)  # 注文件数を決める
+        order_menus = jax.random.choice(key, jnp.arange(menu.num_menus), shape=(order_max,), replace=False)
+        order_menus = jax.lax.fori_loop(ordernum, self.ordered_menu.shape[1], lambda i, o: o.at[i].set(-1), order_menus)
         order_menus = jnp.sort(order_menus)
         return self.ordered_menu.at[idx].set(order_menus)
 
-    def put_dish_on_table(
-        self, table_idx: int, dish: DynamicObject, delivered_idx: int
-    ):
-        place_idx = jnp.argmax(
-            self.food[table_idx] == DynamicObject.EMPTY
-        )  # 空いている最も若い場所のidx
+    def put_dish_on_table(self, table_idx: int, dish: DynamicObject, delivered_idx: int):
+        place_idx = jnp.argmax(self.food[table_idx] == DynamicObject.EMPTY)  # 空いている最も若い場所のidx
         new_food = self.food.at[table_idx, place_idx].set(dish)
         new_order = self.ordered_menu.at[table_idx, delivered_idx].set(-1)
         return self.replace(
-            status=self.status.at[table_idx].set(CustomerStatus.eating_food),
-            food=new_food,
-            ordered_menu=new_order,
+            status=self.status.at[table_idx].set(CustomerStatus.eating_food), food=new_food, ordered_menu=new_order
         )
 
     def leave(self, idx):
@@ -176,9 +152,7 @@ class Customer(PyTreeNode):
             lambda: (
                 pickup,
                 self.replace(
-                    used=self.used.at[idx].set(0),
-                    status=self.status.at[idx].set(CustomerStatus.empty),
-                    food=new_food,
+                    used=self.used.at[idx].set(0), status=self.status.at[idx].set(CustomerStatus.empty), food=new_food
                 ),
             ),
             lambda: (pickup, self.replace(food=new_food)),
@@ -202,33 +176,15 @@ class CustomerLine(PyTreeNode):
         expr += ",".join([str(self.queued_time[i]) for i in range(self.line_length)])
         expr += "\n"
         expr += f"予約客: {self.reserved_line_length}人, 予約客来店時間 = "
-        expr += ",".join(
-            [
-                str(self.reserved_queued_time[i])
-                for i in range(self.reserved_line_length)
-            ]
-        )
+        expr += ",".join([str(self.reserved_queued_time[i]) for i in range(self.reserved_line_length)])
         expr += ", 予約時間 = "
         expr += ",".join([str(t) for t in self.reserve_time])
         expr += "\n"
         return expr
 
     def dequeue(self):
-        (
-            new_line_length,
-            new_queued_time,
-            new_reserved_line_length,
-            new_reserved_queued_time,
-        ) = jax.lax.switch(
-            jnp.argmax(
-                jnp.array(
-                    [
-                        self.reserved_line_length > 0,
-                        self.line_length > 0,
-                        1,
-                    ]
-                )
-            ),
+        (new_line_length, new_queued_time, new_reserved_line_length, new_reserved_queued_time) = jax.lax.switch(
+            jnp.argmax(jnp.array([self.reserved_line_length > 0, self.line_length > 0, 1])),
             [
                 lambda: (
                     self.line_length,
@@ -242,12 +198,7 @@ class CustomerLine(PyTreeNode):
                     self.reserved_line_length,
                     self.reserved_queued_time,
                 ),
-                lambda: (
-                    self.line_length,
-                    self.queued_time,
-                    self.reserved_line_length,
-                    self.reserved_queued_time,
-                ),
+                lambda: (self.line_length, self.queued_time, self.reserved_line_length, self.reserved_queued_time),
             ],
         )
         return self.replace(
