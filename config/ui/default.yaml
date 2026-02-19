@@ -1,0 +1,7 @@
+keyboard:
+random:
+replay:
+  action_log: action_logs/action_log.npz
+ippo:
+  checkpoint: checkpoints/20260129-094118
+  step: 8

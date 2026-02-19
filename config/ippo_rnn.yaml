@@ -1,0 +1,24 @@
+defaults:
+  - layout: layouts
+  - env: default
+  - train: ippo_rnn
+  - _self_
+
+stage: compact
+progress: true
+visualize: false
+# 可視化時の環境の並べ方(縦横比)
+aspect_row: 1
+aspect_col: 2
+
+hydra:
+  run:
+    dir: checkpoints/${hydra.job.name}/${now:%Y%m%d}/${now:%H%M}/config/
+  sweep:
+    dir: checkpoints/${hydra.job.name}/${now:%Y%m%d}/${now:%H%M}_multirun
+    subdir: ${hydra.job.id}_${hydra.job.override_dirname}/config
+  job:
+    config:
+      override_dirname:
+        kv_sep: ":"
+        item_sep: "_"
