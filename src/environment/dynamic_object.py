@@ -129,11 +129,6 @@ class DynamicObject(IntEnum):
         return val[-1]
 
     @staticmethod
-    def get_recipe_encoding(recipe: ArrayLike):
-        ingredients = jax.vmap(DynamicObject.ingredient)(recipe)
-        return jnp.sum(ingredients)
-
-    @staticmethod
     def is_plate(obj):
         return (obj & DynamicObject.PLATE) != 0
 

@@ -2,7 +2,6 @@ import warnings
 
 import jax
 import jax.numpy as jnp
-from omegaconf import DictConfig
 
 from environment.agent import Agent
 from environment.customer import Customer, CustomerLine, CustomerStatus, RegisterLine
@@ -11,6 +10,7 @@ from environment.layouts import Layout
 from environment.menus import MenuList
 from environment.state import Channel, State
 from environment.static_object import StaticObject
+from utils.schema import EnvConfig
 
 
 def _compute_enclosed_spaces(empty_mask: jnp.ndarray) -> jnp.ndarray:
@@ -31,10 +31,11 @@ def _compute_enclosed_spaces(empty_mask: jnp.ndarray) -> jnp.ndarray:
         _, current_grid = val
 
         def _next_val(pos):
-            def _move_in_bounds(dir):
+            @jax.vmap
+            def _move_in_bounds(dir: jax.Array):
                 return jnp.clip(pos + dir, min=0, max=jnp.array([height - 1, width - 1]))
 
-            neighbors = jax.vmap(_move_in_bounds)(directions)
+            neighbors = _move_in_bounds(directions)
             neighbour_values = current_grid[*neighbors.T]
             self_value = current_grid[*pos]
             values = jnp.concatenate([neighbour_values, self_value[jnp.newaxis]], axis=0)
@@ -57,7 +58,7 @@ def _compute_enclosed_spaces(empty_mask: jnp.ndarray) -> jnp.ndarray:
 
 
 class Initializer:
-    def __init__(self, config: DictConfig, layout: Layout, menu: MenuList, random_agent_position: bool):
+    def __init__(self, config: EnvConfig, layout: Layout, menu: MenuList, random_agent_position: bool):
         self.layout = layout
         self.menu = menu
         self.num_agents = len(layout.agent_positions)
@@ -111,7 +112,7 @@ class Initializer:
             self.capacity += [self.capacity[-1]] * (self.num_agents - len(self.capacity))
         # 多い場合はエージェント数までの設定を使用する
         self.capacity = self.capacity[: self.num_agents]
-        config.parameter.capacity = self.capacity
+        config.parameter.capacity = self.capacity  # TODO: Check mutability
 
         self.order_max = config.parameter.order_max
         self.plate_count = config.parameter.plate_count

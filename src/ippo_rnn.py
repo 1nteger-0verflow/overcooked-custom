@@ -18,13 +18,14 @@ from omegaconf import DictConfig, open_dict
 from tqdm import tqdm
 
 from environment.overcooked import OvercookedCustom
+from utils.schema import FileConfig, IppoConfig
 from visualize.visualizer import OvercookedCustomVisualizer
 
 
 class ScannedRNN(nn.Module):
     @functools.partial(nn.scan, variable_broadcast="params", in_axes=0, out_axes=0, split_rngs={"params": False})
     @nn.compact
-    def __call__(self, carry, x):
+    def __call__(self, carry: jax.Array, x: tuple[jax.Array, jax.Array]):
         """Applies the module."""
         rnn_state = carry
         ins, resets = x  # x = (embedding, done)のtuple
@@ -49,7 +50,7 @@ class CNN(nn.Module):
     activation: Callable[..., Any] = nn.relu
 
     @nn.compact
-    def __call__(self, x, train=False):
+    def __call__(self, x: jax.Array, train: bool = False):
         x = nn.Conv(features=128, kernel_size=(1, 1), kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(x)
         x = self.activation(x)
 
@@ -76,10 +77,10 @@ class CNN(nn.Module):
 
 class ActorCriticRNN(nn.Module):
     action_dim: int
-    config: DictConfig
+    config: IppoConfig
 
     @nn.compact
-    def __call__(self, hidden, x):
+    def __call__(self, hidden: jax.Array, x: tuple[jax.Array, jax.Array]):
         obs, dones = x
         embedding = obs
         activation = nn.relu if self.config.ACTIVATION == "relu" else nn.tanh
@@ -123,7 +124,7 @@ class Transition(NamedTuple):
     info: jnp.ndarray
 
 
-def make_train(merged_config: DictConfig):
+def make_train(merged_config: FileConfig):
     env_config = merged_config.env
     config = merged_config.train
     env = OvercookedCustom(env_config, config.RANDOM_AGENT_POS)
@@ -135,6 +136,8 @@ def make_train(merged_config: DictConfig):
         config.NUM_MINIBATCHES = config.NUM_ACTORS // config.MINIBATCH_SIZE
         # ・保存先は絶対パスで指定しなければならない
         config.MODEL_DIR = str(Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir).parent)
+    config: IppoConfig
+
     # 学習のHORIZONステップ目以降はshaped_rewardの重みが0
     rew_shaping_anneal = optax.linear_schedule(
         init_value=1.0, end_value=0.0, transition_steps=config.REW_SHAPING_HORIZON
@@ -551,7 +554,7 @@ def load_config(config: DictConfig):
 
 @hydra.main(version_base=None, config_path="../config", config_name="ippo_rnn")
 def main(config):
-    config = load_config(config)
+    config: FileConfig = load_config(config)
 
     num_seeds = config.train.NUM_SEEDS
     with jax.disable_jit(False):

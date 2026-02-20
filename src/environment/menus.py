@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from flax.struct import PyTreeNode, dataclass
 
 from environment.dynamic_object import DynamicObject
+from utils.schema import MenuConfig
 
 
 @dataclass
@@ -25,7 +26,7 @@ class MenuList(PyTreeNode):
         return self.menu[menu_index]
 
     @staticmethod
-    def load(menus):
+    def load(menus: list[MenuConfig]):
         menu = jnp.array([config.recipe for config in menus], dtype=int)
         duration = jnp.array([config.duration for config in menus], dtype=int)
         volume = jnp.array([config.volume for config in menus], dtype=int)
@@ -36,9 +37,6 @@ class MenuList(PyTreeNode):
         for i in range(self.num_menus):
             expr += f"({i}) 素材:{self.menu[i]}, 調理時間:{self.duration[i]}, 量:{self.volume[i]}\n"
         return expr
-
-    def order_to_ingredients(self, order_idx: int):
-        return self.menu[order_idx]
 
     def get_duration(self, obj):
         ingredient_idxs = DynamicObject.get_ingredient_idx_list_jit(obj)

@@ -9,6 +9,7 @@ from omegaconf import DictConfig, open_dict
 
 from environment.overcooked import OvercookedCustom
 from operation.controller import Controller
+from utils.schema import PlayConfig
 from visualize.visualizer import OvercookedCustomVisualizer
 
 # print時の表示設定はNumpyに依存する
@@ -16,7 +17,7 @@ np.set_printoptions(threshold=100000, linewidth=30000)
 
 
 class InteractiveOvercookedCustom:
-    def __init__(self, config: DictConfig):
+    def __init__(self, config: PlayConfig):
         option = config.option
         self.verbose = option.verbose
         self.visualize = option.visualize
@@ -175,7 +176,7 @@ def load_config(config: DictConfig):
 
 @hydra.main(config_path="../config", config_name="interactive", version_base=None)
 def main(config: DictConfig):
-    config = load_config(config)
+    config: PlayConfig = load_config(config)
     interactive = InteractiveOvercookedCustom(config)
     interactive.run()
 

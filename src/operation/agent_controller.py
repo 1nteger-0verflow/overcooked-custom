@@ -1,9 +1,11 @@
-from omegaconf import DictConfig
+from typing import Any
 
 
 class AgentController:
     @classmethod
-    def create_controller(cls, operation: DictConfig, agent_id: int, num_actions: int, verbose: bool, confirm: bool):
+    def create_controller(
+        cls, operation: dict[str, Any], agent_id: int, num_actions: int, verbose: bool, confirm: bool
+    ):
         from operation.controller_factory import create_controller
 
         return create_controller(operation, agent_id, num_actions, verbose, confirm)

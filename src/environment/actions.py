@@ -29,13 +29,6 @@ class Actions(IntEnum):
             lambda: (False, -1),
         )
 
-    @classmethod
-    def action_to_string(cls, value):
-        for member in cls:
-            if member.value == value and value < cls.PICK_PLACE_BASE:
-                return member.name
-        return f"PICK_PLACE_{value - cls.PICK_PLACE_BASE}"
-
     @staticmethod
     def action_to_direction(action):
         ACT_TO_DIR = jnp.array([(0, +1), (+1, 0), (0, -1), (-1, 0), (0, 0)])

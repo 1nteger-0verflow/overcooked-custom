@@ -1,19 +1,15 @@
 import jax
 import jax.numpy as jnp
-from omegaconf import DictConfig
 
 from environment.dynamic_object import DynamicObject
 from environment.layouts import Layout
 from environment.state import Channel, State
 from environment.static_object import StaticObject
-
-
-def agent_name(idx: int):
-    return f"agent_{idx}"
+from utils.schema import EnvConfig
 
 
 class Observer:
-    def __init__(self, config: DictConfig, layout: Layout):
+    def __init__(self, config: EnvConfig, layout: Layout):
         self.config = config
         self.layout = layout
         self.width = layout.width
@@ -22,7 +18,7 @@ class Observer:
         self.capacity = self.config.parameter.capacity
         self.obs_shape = self._get_obs_shape()
 
-    def _get_obs_shape(self) -> dict:
+    def _get_obs_shape(self):  # TODO: remove (called once)
         # チャンネル数の設定
         num_ingredients = self.layout.num_ingredients
         obj_layers = 4 + num_ingredients + 1  # 皿、調理済み, 使用済み,汚れ 4ch + 素材数ch + カウント 1 ch
@@ -34,20 +30,19 @@ class Observer:
 
         # 依存パラメータ： エージェントの持てる個数, 素材の数
         # 客席のステータスと客の待ち開始時刻を客席のセルに格納する
-        obs_shapes = {}
-        obs_shapes["agents"] = (self.num_agents, self.height, self.width, num_layers)
-        obs_shapes["all_agents"] = (self.height, self.width, agent_layers + static_layers + obj_layers + extra_layers)
-        # コンテキスト情報
-        # 時刻に関する情報  TODO: ピーク時間
-        obs_shapes["schedule"] = 3 + len(self.config.schedule.reservation)
-        # 客席の情報(客席数×[注文, 料理])
-        obs_shapes["customer"] = 2 * self.layout.num_customers
-        # 待ち行列に関する情報
-        obs_shapes["line"] = len(self.config.schedule.reservation) + self.config.parameter.wait_line_max
+        return {
+            "agents": (self.num_agents, self.height, self.width, num_layers),
+            "all_agents": (
+                self.height,
+                self.width,
+                agent_layers + static_layers + obj_layers + extra_layers,
+            ),  # コンテキスト情報
+            "schedule": 3 + len(self.config.schedule.reservation),  # 時刻に関する情報  TODO: ピーク時間
+            "customer": 2 * self.layout.num_customers,  # 客席の情報(客席数×[注文, 料理])
+            "line": len(self.config.schedule.reservation) + self.config.parameter.wait_line_max,  # 待ち行列に関する情報
+        }
 
-        return obs_shapes
-
-    def observe_static_objects(self, state: State):
+    def observe_static_objects(self, state: State):  # TODO: remove (called once)
         static_encoding = jnp.array(
             [
                 StaticObject.WALL,
@@ -72,7 +67,7 @@ class Observer:
         ingredient_pile_layers = static_objects[..., None] == ingredient_pile_encoding
         return jnp.concatenate([static_layers, ingredient_pile_layers], axis=-1)
 
-    def observe_pot(self, state: State):
+    def observe_pot(self, state: State):  # TODO: remove (called once)
         static_objects = state.grid[:, :, Channel.env]
         extra_info = state.grid[:, :, Channel.extra]
         pot_timer_layer = jnp.where(static_objects == StaticObject.POT, extra_info, 0)

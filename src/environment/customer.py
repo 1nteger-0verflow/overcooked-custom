@@ -45,11 +45,7 @@ class Customer(PyTreeNode):
         def _discribe_order(idx):
             if self.status[idx] in [CustomerStatus.waiting_food, CustomerStatus.eating_food]:
                 return ", 注文: " + ",".join(
-                    [
-                        f"(#{order!s}){self.menu.order_to_ingredients(order)}"
-                        for order in self.ordered_menu[idx]
-                        if order >= 0
-                    ]
+                    [f"(#{order!s}){self.menu.menu[order]}" for order in self.ordered_menu[idx] if order >= 0]
                 )
             return ""
 

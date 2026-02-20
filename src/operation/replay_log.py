@@ -1,13 +1,13 @@
+from collections import abc
 from pathlib import Path
 
 import jax.numpy as jnp
-from omegaconf import DictConfig
 
 from operation.agent_controller import AgentController
 
 
 class ReplayLog(AgentController):
-    def __init__(self, agent_id: int, config: DictConfig):
+    def __init__(self, agent_id: int, config: abc.Mapping[str, str]):
         self.agent_id = agent_id
         log = Path(config.get("action_log"))
         log_data = jnp.load(log)

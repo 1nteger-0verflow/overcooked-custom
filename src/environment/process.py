@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-from omegaconf import DictConfig
 
 from environment.actions import Actions
 from environment.agent import Agent
@@ -10,14 +9,15 @@ from environment.layouts import Layout
 from environment.menus import MenuList
 from environment.state import Channel, State
 from environment.static_object import StaticObject
+from utils.schema import EnvConfig
 
 
-def tree_select(predicate, a, b):
+def _tree_select(predicate, a, b):
     return jax.tree_util.tree_map(lambda x, y: jax.lax.select(predicate, x, y), a, b)
 
 
 class Processor:
-    def __init__(self, config: DictConfig, layout: Layout, menu: MenuList):
+    def __init__(self, config: EnvConfig, layout: Layout, menu: MenuList):
         self.config = config
         self.layout = layout
         self.menu = menu
@@ -61,7 +61,7 @@ class Processor:
             def _move(agent: Agent, dir: jnp.ndarray):
                 new_pos = agent.move_in_bounds(dir, self.height, self.width)
 
-                new_pos = tree_select(
+                new_pos = _tree_select(
                     (grid[*new_pos, Channel.env] == StaticObject.EMPTY)
                     & (grid[*new_pos, Channel.obj] & DynamicObject.DIRT == 0),
                     new_pos,
