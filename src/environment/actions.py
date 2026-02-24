@@ -1,5 +1,4 @@
 from enum import IntEnum
-from typing import List
 
 import jax
 import jax.numpy as jnp
@@ -26,7 +25,7 @@ class Actions(IntEnum):
     # PICK_PLACE_BASE = REACT + 1
 
     @staticmethod
-    def declare_action_set(storage_sizes: List[int]):
+    def declare_action_set(storage_sizes: list[int]):
         return jnp.array(jnp.arange(max(storage_sizes) + Actions.PICK_PLACE_BASE))
 
     @staticmethod
@@ -47,10 +46,7 @@ class Actions(IntEnum):
                 lambda: (ActionType.MOVE, -1),
                 lambda: (ActionType.NOP, -1),
                 lambda: (ActionType.INTERACTION, -1),
-                lambda: (
-                    ActionType.PICK_PLACE,
-                    jnp.clip(action - Actions.PICK_PLACE_BASE, min=0),
-                ),
+                lambda: (ActionType.PICK_PLACE, jnp.clip(action - Actions.PICK_PLACE_BASE, min=0)),
             ],
         )
 
@@ -59,18 +55,9 @@ class Actions(IntEnum):
         for member in cls:
             if member.value == value and value < cls.PICK_PLACE_BASE:
                 return member.name
-        else:
-            return f"PICK_PLACE_{value - cls.PICK_PLACE_BASE}"
+        return f"PICK_PLACE_{value - cls.PICK_PLACE_BASE}"
 
     @staticmethod
     def action_to_direction(action):
-        ACT_TO_DIR = jnp.array(
-            [
-                (0, +1),
-                (+1, 0),
-                (0, -1),
-                (-1, 0),
-                (0, 0),
-            ]
-        )
+        ACT_TO_DIR = jnp.array([(0, +1), (+1, 0), (0, -1), (-1, 0), (0, 0)])
         return ACT_TO_DIR[action]

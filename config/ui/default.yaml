@@ -1,5 +1,5 @@
-keyboard: 
-random: 
+keyboard:
+random:
 replay:
   action_log: action_logs/action_log.npz
 ippo:

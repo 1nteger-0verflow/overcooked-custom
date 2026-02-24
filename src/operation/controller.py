@@ -12,11 +12,7 @@ class Controller:
         for i in range(self.num_agents):
             self.controllers.append(
                 AgentController.create_controller(
-                    controller_config[i],
-                    i,
-                    env.num_actions,
-                    config.verbose,
-                    config.confirm,
+                    controller_config[i], i, env.num_actions, config.verbose, config.confirm
                 )
             )
         self.controller_idx = 0
@@ -27,9 +23,7 @@ class Controller:
         else:
             player_list = player
         # レイアウトに含まれるエージェント数に対して操作方法指定が不足する場合は、最後のものを繰り返し適用
-        operation_types = player_list + [player_list[-1]] * (
-            self.num_agents - len(player_list)
-        )
+        operation_types = player_list + [player_list[-1]] * (self.num_agents - len(player_list))
         operation_types = operation_types[: self.num_agents]
         print(f"エージェント数: {self.num_agents}, 操作種別: {operation_types}")
         # 全エージェント分になるよう操作設定を補う

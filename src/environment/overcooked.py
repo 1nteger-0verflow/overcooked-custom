@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -16,11 +14,7 @@ from environment.state import State
 
 
 class OvercookedCustom:
-    def __init__(
-        self,
-        config: DictConfig,
-        random_agent_position: bool = False,
-    ):
+    def __init__(self, config: DictConfig, random_agent_position: bool = False):
         self.config = config
         self.layout = Layout.from_string(grid=config.layout)
         self.menu = MenuList.load(menus=config.menu)
@@ -29,16 +23,14 @@ class OvercookedCustom:
         self.height = self.layout.height
         self.width = self.layout.width
 
-        self.initializer = Initializer(
-            config, self.layout, self.menu, random_agent_position
-        )
+        self.initializer = Initializer(config, self.layout, self.menu, random_agent_position)
         self.processor = Processor(config, self.layout)
         self.observer = Observer(config, self.layout)
 
         self.action_set = Actions.declare_action_set(config.parameter.capacity)
         self.max_steps = int(config.schedule.terminal_time)
 
-    def reset(self, key: jax.Array) -> Tuple[jax.Array, State]:
+    def reset(self, key: jax.Array) -> tuple[jax.Array, State]:
         state = self.initializer.initialize(key)
         obs, _ = self.observer.get_obs(state)
 
@@ -46,34 +38,19 @@ class OvercookedCustom:
 
     @jax.jit(static_argnums=(0,))
     def step_env(
-        self,
-        state: State,
-        actions: jax.Array,
-        key: jax.Array,
-    ) -> Tuple[jax.Array, State, jax.Array, jax.Array, RewardType, jax.Array]:
+        self, state: State, actions: jax.Array, key: jax.Array
+    ) -> tuple[jax.Array, State, jax.Array, jax.Array, RewardType, jax.Array]:
         """Perform single timestep state transition."""
-
-        state, reward, shaped_rewards_value, reward_type = self.processor.step(
-            key, state, actions
-        )
+        state, reward, shaped_rewards_value, reward_type = self.processor.step(key, state, actions)
         state, done = self.update_timestep(state)
         obs, _ = self.observer.get_obs(state)
 
         rewards = jnp.array([reward for _ in range(self.num_agents)])
-        shaped_rewards = jnp.array(
-            [shaped_reward for shaped_reward in shaped_rewards_value]
-        )
+        shaped_rewards = jnp.array([shaped_reward for shaped_reward in shaped_rewards_value])
 
-        return (
-            lax.stop_gradient(obs),
-            lax.stop_gradient(state),
-            rewards,
-            shaped_rewards,
-            reward_type,
-            done,
-        )
+        return (lax.stop_gradient(obs), lax.stop_gradient(state), rewards, shaped_rewards, reward_type, done)
 
-    def update_timestep(self, state: State) -> Tuple[State, jax.Array]:
+    def update_timestep(self, state: State) -> tuple[State, jax.Array]:
         state = state.replace(time=state.time + 1)
         is_done = state.time >= self.max_steps
         return state, is_done
@@ -89,5 +66,5 @@ class OvercookedCustom:
         return len(self.action_set)
 
     @property
-    def obs_shape(self) -> Tuple[int, int, int, int]:
+    def obs_shape(self) -> tuple[int, int, int, int]:
         return self.observer.obs_shape

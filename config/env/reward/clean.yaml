@@ -1,0 +1,20 @@
+delivery_reward: 0.0 # 料理提供時の報酬
+shaped_reward: # 細かいステップごとに得られる報酬
+  invite_customer: 0.0 # 客を案内
+  refuse_customer: 0.0 # 満席時、客を帰す
+  take_order: 0.0 # 注文を取る
+  retrieve_plate: 0.0 # 皿を下げる
+  clean_table: 0.0 # テーブルを片付ける
+  soak_plate: 0.0 # 皿をシンクに置く
+  wash_plate: 0.0 # 皿を洗う
+  process_payment: 0.0 # 会計処理をする(未完)
+  finish_payment: 0.0 # 会計を済ませる
+  clean_dirt: 1.0 # 汚れを掃除する
+  placement_in_pot: 0.0 # 鍋に食材を入れる
+  pot_start_cooking: 0.0 # 調理を開始する
+  dish_pickup: 0.0 # 皿を取る
+penalty: # 抑止したい行動をとったときのペナルティ、Overcookedの処理でマイナス符号にする
+  ineffective_interaction: 0.0
+  erroneous_delivery: 1.0 # 注文と違う料理を提供しようとした
+  step_cost: 0.001 # 移動にかかるコスト(無駄な動きを抑制)
+  block_cost: 1.0 # 位置・向きの変わらない移動をした(壁押し)

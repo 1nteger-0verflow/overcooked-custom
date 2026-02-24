@@ -8,11 +8,7 @@ from environment.state import Channel, State
 from environment.static_object import StaticObject
 
 
-def update_step(
-    state: State,
-    config: DictConfig,
-    key: jax.Array,
-) -> State:
+def update_step(state: State, config: DictConfig, key: jax.Array) -> State:
     # 時間経過による環境の更新
     grid_key, line_key, customer_key, cook_key, check_key = jax.random.split(key, 5)
     state = disturb_env(state, config, grid_key)
@@ -25,11 +21,7 @@ def update_step(
     return state
 
 
-def disturb_env(
-    state: State,
-    config: DictConfig,
-    key: jax.Array,
-) -> State:
+def disturb_env(state: State, config: DictConfig, key: jax.Array) -> State:
     grid = state.grid
     # 床に汚れがランダムに出現
     # 対象のマスを１つ選択し、次に汚れを発生させるかどうかを判定する
@@ -52,20 +44,14 @@ def disturb_env(
 
         return cell.at[Channel.obj].set(new_obj)
 
-    is_empty = (target_cell[Channel.env] == StaticObject.EMPTY) * (
-        target_cell[Channel.obj] == DynamicObject.EMPTY
-    )
+    is_empty = (target_cell[Channel.env] == StaticObject.EMPTY) * (target_cell[Channel.obj] == DynamicObject.EMPTY)
     new_cell = jax.lax.cond(is_empty, _appear_dirt, lambda x: x, target_cell)
     new_grid = grid.at[cell].set(new_cell)
 
     return state.replace(grid=new_grid)
 
 
-def arrive_customer(
-    state: State,
-    config: DictConfig,
-    key: jax.Array,
-) -> State:
+def arrive_customer(state: State, config: DictConfig, key: jax.Array) -> State:
     line = state.line
     current_step = state.time
     congestion_rates = config.schedule.congestion_rates
@@ -83,9 +69,7 @@ def arrive_customer(
     is_arrived = (rn < thres) * (line.line_length < line.queued_time.shape[0])
     line_appended = line.queued_time.at[line.line_length].set(current_step)
     new_queued_time, new_line_length = jax.lax.cond(
-        is_arrived,
-        lambda: (line_appended, line.line_length + 1),
-        lambda: (line.queued_time, line.line_length),
+        is_arrived, lambda: (line_appended, line.line_length + 1), lambda: (line.queued_time, line.line_length)
     )
     # 予約時間になったとき、予約客を追加
     new_reserved_queued_time, new_reserved_line_length = jax.lax.cond(
@@ -110,25 +94,17 @@ def call_order(state: State, key: jax.Array) -> State:
         customer, to_order, time = val
         # 着席してからのstep数で10%ずつ注文待ちに遷移する確率を増やす(10step以内に必ず注文する)
         new_status, new_time = jax.lax.cond(
-            (customer.status[i] == CustomerStatus.sitting)
-            & (to_order[i] < 0.1 * (time - customer.time[i])),
-            lambda: (
-                customer.status.at[i].set(CustomerStatus.ordering),
-                customer.time.at[i].set(time),
-            ),
+            (customer.status[i] == CustomerStatus.sitting) & (to_order[i] < 0.1 * (time - customer.time[i])),
+            lambda: (customer.status.at[i].set(CustomerStatus.ordering), customer.time.at[i].set(time)),
             lambda: (customer.status, customer.time),
         )
         customer = customer.replace(status=new_status, time=new_time)
         return customer, to_order, time
 
     # 座っている客がorderを要求する
-    rn = jax.random.uniform(
-        key, (state.customer.num_customers,), minval=0.0, maxval=1.0
-    )
+    rn = jax.random.uniform(key, (state.customer.num_customers,), minval=0.0, maxval=1.0)
     # statusがsitting -> call orderに変わる
-    new_customer, _, _ = jax.lax.fori_loop(
-        0, state.customer.seat_count, _order, (state.customer, rn, state.time)
-    )
+    new_customer, _, _ = jax.lax.fori_loop(0, state.customer.seat_count, _order, (state.customer, rn, state.time))
     return state.replace(customer=new_customer)
 
 
@@ -137,41 +113,27 @@ def progress_cooking(state: State, config: DictConfig, key: jax.Array) -> State:
     def _timestep_wrapper(cell):
         def _cook(cell):
             is_cooking = cell[Channel.extra] > 0
-            new_extra = jax.lax.select(
-                is_cooking, cell[Channel.extra] - 1, cell[Channel.extra]
-            )
+            new_extra = jax.lax.select(is_cooking, cell[Channel.extra] - 1, cell[Channel.extra])
             finished_cooking = is_cooking * (new_extra == 0)
             correct, volume = state.menu.get_volume(cell[Channel.obj])
             # volumeを指定範囲内の倍率でばらつかせる
             range_min, range_max = config.parameter.volume_range
-            volume_coeff = jax.random.uniform(
-                key, (), minval=range_min, maxval=range_max
-            )
+            volume_coeff = jax.random.uniform(key, (), minval=range_min, maxval=range_max)
             volume = jnp.floor(volume * volume_coeff).astype(int)
             new_ingredients = jax.lax.cond(
                 finished_cooking,
-                lambda: DynamicObject.set_count(
-                    cell[Channel.obj] | DynamicObject.COOKED, volume
-                ),
+                lambda: DynamicObject.set_count(cell[Channel.obj] | DynamicObject.COOKED, volume),
                 lambda: cell[Channel.obj],
             )
 
             return jnp.array([cell[Channel.env], new_ingredients, new_extra])
 
-        branches = jnp.array(
-            [
-                StaticObject.POT == cell[Channel.env],
-                1,
-            ]
-        )
+        branches = jnp.array([cell[Channel.env] == StaticObject.POT, 1])
         branch_idx = jnp.argmax(branches)
 
         return jax.lax.switch(
             branch_idx,  # select index
-            [
-                _cook,
-                lambda x: x,
-            ],
+            [_cook, lambda x: x],
             cell,  # operand
         )
 
@@ -186,11 +148,7 @@ def progress_eating(state: State) -> State:
         decreased_volumes, new_time = jax.lax.switch(
             jnp.argmax(
                 jnp.array(
-                    [
-                        is_eating * jnp.all(jnp.max(volumes) == 1),
-                        is_eating * jnp.any(jnp.max(volumes) > 1),
-                        ~is_eating,
-                    ]
+                    [is_eating * jnp.all(jnp.max(volumes) == 1), is_eating * jnp.any(jnp.max(volumes) > 1), ~is_eating]
                 )
             ),
             [
@@ -216,27 +174,16 @@ def progress_eating(state: State) -> State:
     new_food = jax.vmap(jax.vmap(_finish))(new_food)
     food_remains = jnp.sum(DynamicObject.get_count(new_food), axis=1) > 0
     order_undelivered = jnp.sum(customer.ordered_menu >= 0, axis=1) > 0
-    meal_done = (
-        ~food_remains
-        & ~order_undelivered
-        & (customer.status == CustomerStatus.eating_food)
-    )
+    meal_done = ~food_remains & ~order_undelivered & (customer.status == CustomerStatus.eating_food)
     new_status = customer.status * ~meal_done + CustomerStatus.waiting_check * meal_done
     new_customer = customer.replace(status=new_status, food=new_food, time=new_time)
     return state.replace(customer=new_customer)
 
 
-def get_the_check(
-    state: State,
-    config: DictConfig,
-    key: jax.Array,
-) -> State:
+def get_the_check(state: State, config: DictConfig, key: jax.Array) -> State:
     def _start_checking(customer: Customer, register: RegisterLine):
         # 会計待ちになってからの時間が最も長い客席のindex
-        dequeue_idx = jnp.argmax(
-            (customer.status == CustomerStatus.waiting_check)
-            * (state.time + 1 - customer.time)
-        )
+        dequeue_idx = jnp.argmax((customer.status == CustomerStatus.waiting_check) * (state.time + 1 - customer.time))
         new_status = customer.status.at[dequeue_idx].set(CustomerStatus.checking)
         new_time = customer.time.at[dequeue_idx].set(state.time)
         # 会計にかかるステップ数をランダムにする
@@ -248,9 +195,7 @@ def get_the_check(
 
     customer = state.customer
     register = state.register
-    customers_waiting_check = (
-        jnp.sum(customer.status == CustomerStatus.waiting_check) > 0
-    )
+    customers_waiting_check = jnp.sum(customer.status == CustomerStatus.waiting_check) > 0
     register_is_free = register.service_time == 0
     new_customer, new_register = jax.lax.cond(
         customers_waiting_check & register_is_free,

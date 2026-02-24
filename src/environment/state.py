@@ -4,11 +4,7 @@ import jax.numpy as jnp
 from flax.struct import PyTreeNode, dataclass
 
 from environment.agent import Agent
-from environment.customer import (
-    Customer,
-    CustomerLine,
-    RegisterLine,
-)
+from environment.customer import Customer, CustomerLine, RegisterLine
 from environment.dynamic_object import DynamicObject
 from environment.menus import MenuList
 

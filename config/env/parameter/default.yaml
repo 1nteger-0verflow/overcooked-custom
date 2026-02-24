@@ -1,0 +1,19 @@
+forward_view_size: # 各エージェントの前方の視野範囲(0は制限なし)
+  - 0
+  - 3
+side_view_size: # 各エージェントの左右の視野範囲(0は制限なし)
+  - 2
+  - 1
+restrict_observation: true # 観測情報を視野範囲内に制限する
+capacity: # 各エージェントの持てるものの個数
+  - 3
+  - 3
+plate_count: 30 # 皿が何枚あるか
+sink_capacity: 5 # シンクに置ける皿の最大枚数
+order_max: 3 # 最大注文可能数(追加注文はなし)
+wait_line_max: 5 # 一般客が入口に並ぶ人数の上限
+dirt_appear_rate: 0.05 # 毎ステップの汚れ発生率
+dirtiness_max: 5 # 汚れ度合いの上限(汚れを掃除して消えるまでに何回interactionが必要か)
+cooking_duration_range: [0.5, 3.0] # 調理時間の振れ幅(標準時間に掛ける係数の範囲)
+volume_range: [0.5, 2.0] # 料理の分量の振れ幅(標準分量に掛ける係数の範囲)
+check_time_max: 10 # 会計にかかる最大ステップ数

@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import jax
 import jax.numpy as jnp
 from omegaconf import DictConfig
@@ -28,31 +26,21 @@ class Processor:
         self.height = layout.height
 
     @jax.jit(static_argnums=(0,))
-    def step(
-        self, key: jax.Array, state: State, actions: jax.Array
-    ) -> Tuple[State, float, jax.Array, RewardType]:
+    def step(self, key: jax.Array, state: State, actions: jax.Array) -> tuple[State, float, jax.Array, RewardType]:
         key, interact_key = jax.random.split(key)
         # Move action:
         prev_agents = state.agents
         state = self.update_positions(state, actions)
         # interaction between agent and environment
-        (
-            state,
-            reward,
-            shaped_rewards,
-            reward_type,
-        ) = self.execute_interaction(state, actions, prev_agents, interact_key)
+        (state, reward, shaped_rewards, reward_type) = self.execute_interaction(
+            state, actions, prev_agents, interact_key
+        )
         # 時間経過による変化(客の状態遷移、汚れの発生、調理・食事の進行)
         state = update_step(state, self.config, key)
         # 前回実行した行動を記憶
         state = state.replace(prev_actions=actions)
 
-        return (
-            state,
-            reward,
-            shaped_rewards,
-            reward_type,
-        )
+        return (state, reward, shaped_rewards, reward_type)
 
     def update_positions(self, state: State, actions: jax.Array) -> State:
         # 1. move agent to new position (if possible on the grid)
@@ -62,9 +50,7 @@ class Processor:
         # 3. prevent swapping
         new_agents = self.prevent_swapping(state, new_agents)
         # 4. update view area
-        new_agents = new_agents.update_observed_grid(
-            state.time, self.height, self.width
-        )
+        new_agents = new_agents.update_observed_grid(state.time, self.height, self.width)
         # ここまでの処理で更新後のエージェント位置は確定するので状態に反映させる
         return state.replace(agents=new_agents)
 
@@ -87,13 +73,7 @@ class Processor:
 
                 return agent.replace(pos=new_pos, dir=dir)
 
-            return jax.lax.cond(
-                jnp.all(direction == jnp.array([0, 0])),
-                lambda a, _: a,
-                _move,
-                agent,
-                direction,
-            )
+            return jax.lax.cond(jnp.all(direction == jnp.array([0, 0])), lambda a, _: a, _move, agent, direction)
 
         new_agents = jax.vmap(_move_wrapper)(state.agents, actions)
         return new_agents
@@ -101,22 +81,16 @@ class Processor:
     def resolve_collisions(self, state: State, new_agents: Agent) -> Agent:
         # エージェント同士が衝突しないようにする
         def _masked_positions(agent_mask: jax.Array):
-            return jax.vmap(
-                lambda is_collide, cur_pos, new_pos: jax.lax.select(
-                    is_collide, cur_pos, new_pos
-                )
-            )(agent_mask, state.agents.pos, new_agents.pos)
+            return jax.vmap(lambda is_collide, cur_pos, new_pos: jax.lax.select(is_collide, cur_pos, new_pos))(
+                agent_mask, state.agents.pos, new_agents.pos
+            )
 
         def _get_collisions(agent_mask: jax.Array):
             positions = _masked_positions(agent_mask)
 
             # 移動後の各マス上のエージェント数>1なら衝突あり
             collision_grid = jnp.zeros((self.height, self.width))
-            collision_grid, _ = jax.lax.scan(
-                lambda grid, pos: (grid.at[*pos].add(1), None),
-                collision_grid,
-                positions,
-            )
+            collision_grid, _ = jax.lax.scan(lambda grid, pos: (grid.at[*pos].add(1), None), collision_grid, positions)
 
             collision_mask = collision_grid > 1
             collisions = jax.vmap(lambda p: collision_mask[*p])(positions)
@@ -136,11 +110,9 @@ class Processor:
     def prevent_swapping(self, state: State, new_agents: Agent) -> Agent:
         # エージェントがすり抜けないようにする
         def _masked_positions(agent_mask: jax.Array):
-            return jax.vmap(
-                lambda is_collide, cur_pos, new_pos: jax.lax.select(
-                    is_collide, cur_pos, new_pos
-                )
-            )(agent_mask, state.agents.pos, new_agents.pos)
+            return jax.vmap(lambda is_collide, cur_pos, new_pos: jax.lax.select(is_collide, cur_pos, new_pos))(
+                agent_mask, state.agents.pos, new_agents.pos
+            )
 
         def _compute_swapped_agents(original_positions, new_positions):
             original_pos_expanded = jnp.expand_dims(original_positions, axis=0)
@@ -162,12 +134,8 @@ class Processor:
         return new_agents
 
     def execute_interaction(
-        self,
-        state: State,
-        actions: jax.Array,
-        prev_agents: Agent,
-        interact_key: jax.Array,
-    ) -> Tuple[State, float, jax.Array, RewardType]:
+        self, state: State, actions: jax.Array, prev_agents: Agent, interact_key: jax.Array
+    ) -> tuple[State, float, jax.Array, RewardType]:
         penalty = self.config.reward.penalty
 
         # Interact action:
@@ -175,97 +143,45 @@ class Processor:
             agent, action, prev_agent, prev_action = x
             action_type, storage_idx = Actions.action_type(agent.modify_action(action))
 
-            def _move(
-                carry: Tuple[State, float],
-                agent: Agent,
-            ):
+            def _move(carry: tuple[State, float], agent: Agent):
                 # prev_agentsの位置と向きを考慮し、ペナルティを与える
                 moved = jnp.any(agent.pos != prev_agent.pos)
                 turned = jnp.any(agent.dir != prev_agent.dir)
                 blocked_move_eff = (~moved) & (~turned)  # "悪い壁押し"
-                move_penalty = (
-                    -penalty.step_cost - penalty.block_cost * blocked_move_eff
-                )
+                move_penalty = -penalty.step_cost - penalty.block_cost * blocked_move_eff
                 return carry, (agent, move_penalty, RewardType.MOVE)
 
-            def _nop(
-                carry: Tuple[State, float],
-                agent: Agent,
-            ):
+            def _nop(carry: tuple[State, float], agent: Agent):
                 return carry, (agent, 0.0, RewardType.STAY)
 
-            def _interact(
-                carry: Tuple[State, float],
-                agent: Agent,
-            ):
+            def _interact(carry: tuple[State, float], agent: Agent):
                 state, reward = carry
 
-                (
-                    new_state,
-                    new_agent,
-                    interact_reward,
-                    shaped_reward,
-                    reward_type,
-                ) = process_interact(
-                    state,
-                    agent,
-                    interact_key,
-                    self.config,
-                    self.layout,
+                (new_state, new_agent, interact_reward, shaped_reward, reward_type) = process_interact(
+                    state, agent, interact_key, self.config, self.layout
                 )
 
-                carry = (
-                    new_state,
-                    reward + interact_reward,
-                )
+                carry = (new_state, reward + interact_reward)
                 return carry, (new_agent, shaped_reward, reward_type)
 
-            def _pick_place(
-                carry: Tuple[State, float],
-                agent: Agent,
-            ):
+            def _pick_place(carry: tuple[State, float], agent: Agent):
                 state, reward = carry
 
-                (
-                    new_state,
-                    new_agent,
-                    interact_reward,
-                    shaped_reward,
-                    reward_type,
-                ) = pick_and_place(
-                    state,
-                    agent,
-                    interact_key,
-                    storage_idx,
-                    self.config,
+                (new_state, new_agent, interact_reward, shaped_reward, reward_type) = pick_and_place(
+                    state, agent, interact_key, storage_idx, self.config
                 )
 
-                carry = (
-                    new_state,
-                    reward + interact_reward,
-                )
+                carry = (new_state, reward + interact_reward)
                 return carry, (new_agent, shaped_reward, reward_type)
 
-            actiontype_branches = action_type == jnp.array(
-                [e.value for e in ActionType]
-            )
+            actiontype_branches = action_type == jnp.array([e.value for e in ActionType])
             branch_idx = jnp.argmax(actiontype_branches)
-            return jax.lax.switch(
-                branch_idx, [_move, _nop, _interact, _pick_place], carry, agent
-            )
+            return jax.lax.switch(branch_idx, [_move, _nop, _interact, _pick_place], carry, agent)
 
         # エージェント1体ずつinteractionの処理
         carry = (state, 0.0)
         xs = (state.agents, actions, prev_agents, state.prev_actions)
         # returnの1つ目はcarryが全ループを経たもの、2つ目はループごとの出力のstack
-        (
-            (new_state, reward),
-            (new_agents, shaped_rewards, reward_type),
-        ) = jax.lax.scan(_interact_wrapper, carry, xs)
+        ((new_state, reward), (new_agents, shaped_rewards, reward_type)) = jax.lax.scan(_interact_wrapper, carry, xs)
 
-        return (
-            new_state.replace(agents=new_agents),
-            reward,
-            shaped_rewards,
-            reward_type,
-        )
+        return (new_state.replace(agents=new_agents), reward, shaped_rewards, reward_type)

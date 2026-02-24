@@ -1,0 +1,5 @@
+defaults:
+  - parameter: step1
+  - reward: eval
+  - schedule: step1
+  - menu: step1

@@ -44,11 +44,7 @@ class MenuList(PyTreeNode):
         # メニュー番号から完成品の料理を構成(分量は不問)
         ingredients = self.menu[menu_index]
         food = DynamicObject.get_recipe_encoding(ingredients)
-        return (
-            DynamicObject.PLATE
-            | DynamicObject.COOKED
-            | DynamicObject.set_count(food, 0)
-        )
+        return DynamicObject.PLATE | DynamicObject.COOKED | DynamicObject.set_count(food, 0)
 
     def get_duration(self, obj):
         ingredient_idxs = DynamicObject.get_ingredient_idx_list_jit(obj)
@@ -56,9 +52,7 @@ class MenuList(PyTreeNode):
         is_menu_table = jnp.all(jnp.sort(self.menu) == ingredient_idxs, axis=1)
         menu_idx = jnp.argmax(is_menu_table)
         in_menu = jnp.any(is_menu_table)
-        return jax.lax.cond(
-            in_menu, lambda: (True, self.duration[menu_idx]), lambda: (False, 1)
-        )
+        return jax.lax.cond(in_menu, lambda: (True, self.duration[menu_idx]), lambda: (False, 1))
 
     def get_volume(self, obj):
         ingredient_idxs = DynamicObject.get_ingredient_idx_list_jit(obj)
@@ -66,9 +60,7 @@ class MenuList(PyTreeNode):
         is_menu_table = jnp.all(jnp.sort(self.menu) == ingredient_idxs, axis=1)
         menu_idx = jnp.argmax(is_menu_table)
         in_menu = jnp.any(is_menu_table)
-        return jax.lax.cond(
-            in_menu, lambda: (True, self.volume[menu_idx]), lambda: (False, 1)
-        )
+        return jax.lax.cond(in_menu, lambda: (True, self.volume[menu_idx]), lambda: (False, 1))
 
     def correct(self, dish, ordered_menus: jnp.ndarray):
         # ordered_menusのなかにdishと分量の違いを除いて一致するものがあれば正しい

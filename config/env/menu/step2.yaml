@@ -1,0 +1,12 @@
+- recipe: [0, 0, 0]
+  duration: 2
+  volume: 3
+- recipe: [0, 0, 1]
+  duration: 3
+  volume: 2
+- recipe: [0, 1, 1]
+  duration: 2
+  volume: 3
+- recipe: [1, 1, 1]
+  duration: 4
+  volume: 4

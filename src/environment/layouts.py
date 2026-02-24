@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import List, Tuple
 
 import numpy as np
 
@@ -9,18 +8,18 @@ from environment.static_object import StaticObject
 @dataclass
 class Layout:
     # agent positions list of positions, tuples (y, x)
-    agent_positions: List[Tuple[int, int]]
+    agent_positions: list[tuple[int, int]]
 
     # width x height grid with static items
     static_objects: np.ndarray
 
     num_ingredients: int
     num_customers: int
-    entrance_positions: List[Tuple[int, int]]
-    plate_positions: List[Tuple[int, int]]
-    table_positions: List[Tuple[int, int]]
-    chair_positions: List[Tuple[int, int]]
-    register_positions: List[Tuple[int, int]]
+    entrance_positions: list[tuple[int, int]]
+    plate_positions: list[tuple[int, int]]
+    table_positions: list[tuple[int, int]]
+    chair_positions: list[tuple[int, int]]
+    register_positions: list[tuple[int, int]]
 
     def __post_init__(self):
         if self.num_agents == 0:
@@ -61,7 +60,6 @@ class Layout:
         0-9: Ingredient x pile
         ' ' (space) : empty cell
         """
-
         if not isinstance(grid, str):
             raise ValueError("Invalid layout, must be a string layout")
 
@@ -140,9 +138,7 @@ class Layout:
                 c += 1
 
         if num_tables != num_chairs:
-            raise ValueError(
-                f"Table and Chair must match. ({num_tables}Tables, {num_chairs}Chairs.)"
-            )
+            raise ValueError(f"Table and Chair must match. ({num_tables}Tables, {num_chairs}Chairs.)")
         if len(entrance_positions) > 1:
             raise ValueError("Multiple Entrance is not allowed.")
         if len(register_positions) < 1:

@@ -25,7 +25,7 @@ hydra:
         # multirunのときに出力ディレクトリ名に含めない設定値
         # yamlファイルの置き換えでenv/reward=aaa.yamlなどとすると出力先が深くなってしまう
         # 学習に直接関係しないパラメータも除外する
-        exclude_keys: 
+        exclude_keys:
           - env/menu
           - env/parameter
           - env/reward

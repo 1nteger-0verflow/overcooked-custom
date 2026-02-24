@@ -1,0 +1,12 @@
+opening_time: 0 # 開店時間
+closing_time: 600 # 閉店時間
+terminal_time: 600 # 終了時間
+reservation: # 予約客の来店時間(ステップ数で指定)
+  - 10
+  - 80
+  - 240
+# 一般客の来店率の時間変化
+# [変更ステップ数, 来店率(%)]のリスト
+congestion_rates:
+  - [0, 0]
+  - [50, 20]

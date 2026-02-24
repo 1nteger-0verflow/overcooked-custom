@@ -3,15 +3,14 @@ SEED: 0
 
 LR: 0.00025
 ANNEAL_LR: True
-LR_WARMUP: 0.0   # NUM_LEARNING_STEPSに対するウォームアップの割合
+LR_WARMUP: 0.0 # NUM_LEARNING_STEPSに対するウォームアップの割合
 
-NUM_ENVS: 32      # 並列実行する環境の個数(16GB: 32*2agents)
-MINIBATCH_SIZE: 16   # NUM_ENVS*num_agentsを割り切る数
-NUM_UPDATE_EPOCHS: 4   # minibatch単位の学習１周を繰り返す回数
-NUM_TRAINING_STEPS: 10000  # 行動->学習(UPDATE_EPOCHS回) を1単位として何回繰り返すか
-REW_SHAPING_HORIZON: 60000   # LEARNING_STEPS に応じてshaped_rewardの重みを減らすしていき、HORIZON以降は提供時のrewardのみになる。
-TIMESTEPS: 32   # 学習1ステップのために環境の更新を行いデータを収集するステップ数(unroll=16の倍数にするとよい)
-
+NUM_ENVS: 32 # 並列実行する環境の個数(16GB: 32*2agents)
+MINIBATCH_SIZE: 16 # NUM_ENVS*num_agentsを割り切る数
+NUM_UPDATE_EPOCHS: 4 # minibatch単位の学習１周を繰り返す回数
+NUM_TRAINING_STEPS: 10000 # 行動->学習(UPDATE_EPOCHS回) を1単位として何回繰り返すか
+REW_SHAPING_HORIZON: 60000 # LEARNING_STEPS に応じてshaped_rewardの重みを減らすしていき、HORIZON以降は提供時のrewardのみになる。
+TIMESTEPS: 32 # 学習1ステップのために環境の更新を行いデータを収集するステップ数(unroll=16の倍数にするとよい)
 
 FC_DIM_SIZE: 128
 # GRU: Gated Recurrent Unit(LSTMの簡易版)

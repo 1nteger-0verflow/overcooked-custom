@@ -1,0 +1,10 @@
+defaults:
+  - parameter: default
+  - reward: default
+  - schedule: default
+  - menu: default
+
+customer:
+  patience_mean: 10
+  patience_std: 4
+  digestion_speed: 1

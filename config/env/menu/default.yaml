@@ -1,0 +1,19 @@
+# 提供可能なメニューのリスト
+# recipe: 必要な食材番号のリスト
+# duration: 調理にかかる時間
+# volume: 提供から食べ終わるまでのステップ数
+- recipe: [0, 0, 1]
+  duration: 2
+  volume: 4
+- recipe: [0, 1, 1]
+  duration: 8
+  volume: 22
+- recipe: [0, 0, 0]
+  duration: 3
+  volume: 3
+- recipe: [1, 1, 1]
+  duration: 5
+  volume: 6
+- recipe: [1, 2, 2]
+  duration: 7
+  volume: 9
