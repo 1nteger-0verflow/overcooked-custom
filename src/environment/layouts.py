@@ -45,7 +45,8 @@ class Layout:
 
     @staticmethod
     def from_string(grid: str):  # , possible_recipes:List[List[int]]|None=None):
-        """Assumes `grid` is string representation of the layout, with 1 line per row, and the following symbols:
+        """Assumes `grid` is string representation of the layout, with 1 line per row, and the following symbols.
+
         A: agent
         W: wall
         C: counter
@@ -145,7 +146,7 @@ class Layout:
             raise ValueError("Register is not included in layout.")
         # TODO: add some sanity checks - e.g. agent must exist, surrounded by walls, etc.
 
-        layout = Layout(
+        return Layout(
             agent_positions=agent_positions,
             static_objects=static_objects,
             num_ingredients=num_ingredients,
@@ -156,5 +157,3 @@ class Layout:
             chair_positions=chair_positions,
             register_positions=register_positions,
         )
-
-        return layout

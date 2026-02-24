@@ -50,7 +50,7 @@ class CNN(nn.Module):
     activation: Callable[..., Any] = nn.relu
 
     @nn.compact
-    def __call__(self, x, train=False):
+    def __call__(self, x, train: bool = False):
         x = nn.Conv(features=128, kernel_size=(1, 1), kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(x)
         x = self.activation(x)
 
@@ -72,9 +72,7 @@ class CNN(nn.Module):
         x = x.reshape((x.shape[0], -1))
 
         x = nn.Dense(features=self.output_size, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(x)
-        x = self.activation(x)
-
-        return x
+        return self.activation(x)
 
 
 class ActorCriticRNN(nn.Module):
@@ -88,10 +86,7 @@ class ActorCriticRNN(nn.Module):
     def __call__(self, hidden, x):
         obs, dones = x
         embedding = obs
-        if self.config.ACTIVATION == "relu":
-            activation = nn.relu
-        else:
-            activation = nn.tanh
+        activation = nn.relu if self.config.ACTIVATION == "relu" else nn.tanh
 
         embed_model = CNN(output_size=self.config.GRU_HIDDEN_DIM, activation=activation)
         embedding = jax.vmap(embed_model)(embedding)
@@ -183,8 +178,7 @@ def make_train(merged_config: DictConfig):
         # shape: (1,NUM_ENV, height, width, channel), (1, NUM_ENVS)
         init_x = (jnp.zeros((1, config.NUM_ENVS, *env.obs_shape[1:])), jnp.zeros((1, config.NUM_ENVS)))
         init_hstate = ScannedRNN.initialize_carry(config.NUM_ENVS, config.GRU_HIDDEN_DIM)
-        network_params = network.init(rng, init_hstate, init_x)
-        return network_params
+        return network.init(rng, init_hstate, init_x)
 
     def create_learning_rate_fn():
         base_learning_rate = config.LR
@@ -199,8 +193,7 @@ def make_train(merged_config: DictConfig):
         cosine_steps = max(total_update_steps - warmup_steps, 1)
         cosine_fn = optax.cosine_decay_schedule(init_value=base_learning_rate, decay_steps=cosine_steps)
 
-        schedule_fn = optax.join_schedules(schedules=[warmup_fn, cosine_fn], boundaries=[warmup_steps])
-        return schedule_fn
+        return optax.join_schedules(schedules=[warmup_fn, cosine_fn], boundaries=[warmup_steps])
 
     lr_schedule = create_learning_rate_fn()
 
@@ -495,7 +488,7 @@ def make_train(merged_config: DictConfig):
                 skip_update = 1.0 - is_finite.astype(jnp.float32)
 
                 # aux の後ろに追加（既存の index を壊さない）
-                aux = aux + (grad_norm, lr, skip_update)
+                aux = (*aux, grad_norm, lr, skip_update)
 
                 train_state = jax.lax.cond(is_finite, _apply, _skip, train_state)
 
@@ -517,7 +510,7 @@ def make_train(merged_config: DictConfig):
 
             minibatches = jax.tree_util.tree_map(
                 lambda x: jnp.swapaxes(
-                    jnp.reshape(x, [x.shape[0], config.NUM_MINIBATCHES, -1] + list(x.shape[2:])), 1, 0
+                    jnp.reshape(x, [x.shape[0], config.NUM_MINIBATCHES, -1, *list(x.shape[2:])]), 1, 0
                 ),
                 shuffled_batch,
             )
@@ -638,7 +631,7 @@ def make_train(merged_config: DictConfig):
             init_hstate = ScannedRNN.initialize_carry(config.NUM_ACTORS, config.GRU_HIDDEN_DIM)
 
             rng, init_rng = jax.random.split(rng)
-            init_runner_state = (
+            return (
                 init_train_state,  # ネットワークパラメータ初期値
                 init_env_state,  # 初期化した環境 (NUM_ENVS,)
                 init_obsv,  # 初期状態の観測値 (NUM_ENVS,)
@@ -647,7 +640,6 @@ def make_train(merged_config: DictConfig):
                 init_hstate,  # RNN隠れ状態 (NUM_ACTORS, GRU_HIDDEN_DIM)
                 init_rng,
             )
-            return init_runner_state
 
         ###################################################
         # train の処理本体

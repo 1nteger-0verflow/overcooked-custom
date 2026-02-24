@@ -17,3 +17,4 @@ def create_controller(operation: DictConfig, agent_id: int, num_actions: int, ve
         return ReplayLog(agent_id, operation[optype])
     if optype == "ippo":
         return IPPOModelInput(agent_id, operation[optype], num_actions, verbose)
+    raise

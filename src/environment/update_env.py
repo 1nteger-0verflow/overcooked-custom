@@ -16,9 +16,7 @@ def update_step(state: State, config: DictConfig, key: jax.Array) -> State:
     state = call_order(state, customer_key)
     state = progress_cooking(state, config, cook_key)
     state = progress_eating(state)
-    state = get_the_check(state, config, check_key)
-
-    return state
+    return get_the_check(state, config, check_key)
 
 
 def disturb_env(state: State, config: DictConfig, key: jax.Array) -> State:

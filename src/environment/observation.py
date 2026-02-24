@@ -167,8 +167,7 @@ class Observer:
         next_reservation_time = jax.lax.cond(reservation_remaining, next_reservation_time, lambda: -1)
         context = jnp.array([state.time, schedule.opening_time, schedule.closing_time, next_reservation_time])
         context_layers = jnp.zeros((self.height, self.width, context.size))
-        context_layers = context_layers.at[*entrance_pos].set(context)
-        return context_layers
+        return context_layers.at[*entrance_pos].set(context)
 
     def observe_line(self, state: State):
         # 客の待機列の観測(入口のgridに列の長さを設定する)
@@ -187,8 +186,7 @@ class Observer:
             mask = jnp.array([0x3] * num_ingredients)
 
             layers = recipe[..., None] >> shift
-            layers = layers & mask
-            return layers
+            return layers & mask
 
         def _observe_recipe(obj):
             # 注文1品ずつを食材の組み合わせに分解、注文なしのとき無効(-1)
@@ -281,9 +279,7 @@ class Observer:
                 mask = jnp.array([0x1, 0x1, 0x1] + [0x3] * num_ingredients)
 
                 layers = ingredients[..., None] >> shift
-                layers = layers & mask
-
-                return layers
+                return layers & mask
 
             def _obs_inventory(i, val):
                 inv_grid = jnp.zeros_like(ingredients).at[*pos].set(inv[i])

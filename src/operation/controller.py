@@ -18,10 +18,7 @@ class Controller:
         self.controller_idx = 0
 
     def apply_config(self, ui: DictConfig, player: str | ListConfig) -> ListConfig:
-        if isinstance(player, str):
-            player_list = [player]
-        else:
-            player_list = player
+        player_list = [player] if isinstance(player, str) else player
         # レイアウトに含まれるエージェント数に対して操作方法指定が不足する場合は、最後のものを繰り返し適用
         operation_types = player_list + [player_list[-1]] * (self.num_agents - len(player_list))
         operation_types = operation_types[: self.num_agents]
@@ -51,10 +48,7 @@ class Controller:
         return auto
 
     def is_done(self) -> bool:
-        done = True
-        for controller in self.controllers:
-            done &= controller.is_done
-        return done
+        return all(c.is_done for c in self.controllers)
 
     def keyboard_input(self, key: str) -> bool:
         for _ in range(self.num_agents):

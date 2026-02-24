@@ -15,7 +15,8 @@ from environment.static_object import StaticObject
 
 
 def _compute_enclosed_spaces(empty_mask: jnp.ndarray) -> jnp.ndarray:
-    """JaxMARL/jaxmarl/environments/overcooked_v2/utils.py
+    """JaxMARL/jaxmarl/environments/overcooked_v2/utils.py.
+
     エージェントが移動して到達できる範囲内に同じIDを振ったarrayを返す。
     (カウンターなどで区切られたエリア内でエージェントの初期位置をランダムにするために使用する)
     empty_mask には grid==StaticObject.EMPTY のマップを入力する。
@@ -182,7 +183,7 @@ class Initializer:
             service_time=jnp.array(0, dtype=jnp.int32),
         )
 
-        state = State(
+        return State(
             agents=agents,
             customer=customers,
             line=waiting_line,
@@ -192,8 +193,6 @@ class Initializer:
             menu=self.menu,
             prev_actions=jnp.full(num_agents, Actions.STAY),
         )
-
-        return state
 
     def _randomize_agent_positions(self, agents: Agent, key: jax.Array):
         # 空の場所からエージェントの初期位置を選択

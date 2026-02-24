@@ -59,5 +59,4 @@ class Actions(IntEnum):
 
     @staticmethod
     def action_to_direction(action):
-        ACT_TO_DIR = jnp.array([(0, +1), (+1, 0), (0, -1), (-1, 0), (0, 0)])
-        return ACT_TO_DIR[action]
+        return jnp.array([(0, +1), (+1, 0), (0, -1), (-1, 0), (0, 0)])[action]

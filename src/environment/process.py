@@ -75,15 +75,12 @@ class Processor:
 
             return jax.lax.cond(jnp.all(direction == jnp.array([0, 0])), lambda a, _: a, _move, agent, direction)
 
-        new_agents = jax.vmap(_move_wrapper)(state.agents, actions)
-        return new_agents
+        return jax.vmap(_move_wrapper)(state.agents, actions)
 
     def resolve_collisions(self, state: State, new_agents: Agent) -> Agent:
         # エージェント同士が衝突しないようにする
         def _masked_positions(agent_mask: jax.Array):
-            return jax.vmap(lambda is_collide, cur_pos, new_pos: jax.lax.select(is_collide, cur_pos, new_pos))(
-                agent_mask, state.agents.pos, new_agents.pos
-            )
+            return jax.vmap(jax.lax.select)(agent_mask, state.agents.pos, new_agents.pos)
 
         def _get_collisions(agent_mask: jax.Array):
             positions = _masked_positions(agent_mask)
@@ -93,8 +90,7 @@ class Processor:
             collision_grid, _ = jax.lax.scan(lambda grid, pos: (grid.at[*pos].add(1), None), collision_grid, positions)
 
             collision_mask = collision_grid > 1
-            collisions = jax.vmap(lambda p: collision_mask[*p])(positions)
-            return collisions
+            return jax.vmap(lambda p: collision_mask[*p])(positions)
 
         initial_agent_mask = jnp.zeros((state.agents.num_agents,), dtype=bool)
         agent_mask = jax.lax.while_loop(
@@ -110,9 +106,7 @@ class Processor:
     def prevent_swapping(self, state: State, new_agents: Agent) -> Agent:
         # エージェントがすり抜けないようにする
         def _masked_positions(agent_mask: jax.Array):
-            return jax.vmap(lambda is_collide, cur_pos, new_pos: jax.lax.select(is_collide, cur_pos, new_pos))(
-                agent_mask, state.agents.pos, new_agents.pos
-            )
+            return jax.vmap(jax.lax.select)(agent_mask, state.agents.pos, new_agents.pos)
 
         def _compute_swapped_agents(original_positions, new_positions):
             original_pos_expanded = jnp.expand_dims(original_positions, axis=0)
@@ -125,8 +119,7 @@ class Processor:
 
             swap_pairs = jnp.logical_and(swap_mask, swap_mask.T)
 
-            swapped_agents = jnp.any(swap_pairs, axis=0)
-            return swapped_agents
+            return jnp.any(swap_pairs, axis=0)
 
         swap_mask = _compute_swapped_agents(state.agents.pos, new_agents.pos)
         new_agents = new_agents.replace(pos=_masked_positions(swap_mask))
