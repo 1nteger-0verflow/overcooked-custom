@@ -1,0 +1,31 @@
+defaults:
+  - layout: layouts
+  - env: step1
+  - ui: default
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+  - _self_
+
+stage: step1     # config/layout/layouts.yamlの環境名
+player:          # エージェントごとの操作方法
+  - keyboard
+  - keyboard
+
+verbose: true    # 各ステップの詳細表示の有無
+seed: [0, 0]     # 乱数シード
+random_agent_position: false   # リセットするときにエージェントの位置をランダムに変更
+confirm: false   # 手動操作時の確認有無
+visualize: true  # 可視化の有無
+loop: false      # 終了時刻に達したあとループするか
+
+save_gif: false  # 終了時刻まで操作した後、gifファイルにアニメーションとして保存
+gif_filename: OCcustom_${now:%Y%m%d%H%M}.gif   # 保存するgifファイル名
+log: false       # 行動のログを採取する
+log_dir: action_logs   # ログ出力先ディレクトリ
+profile: false   # ステップの処理時間を計測
+
+
+hydra:
+    output_subdir: null
+    run:
+        dir: .

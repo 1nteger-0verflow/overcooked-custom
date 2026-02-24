@@ -1,0 +1,18 @@
+keyboard: 
+random: 
+replay:
+  action_log: action_logs/action_log.npz
+ippo:
+  # 読み込むチェックポイントのリストを設定する
+  # エージェント数に満たない場合は最後の設定を繰り返し適用する
+  #  -> 1つだけ記述でSelf-Play
+  #  -> 複数設定があるとエージェントごとにそれぞれ別モデルを適用(Cross-Play)
+  #
+  #  コマンドラインから上書き指定する場合は
+  # "ui.ippo=[{checkpoint: (path/to/chkpt}, step: 1000}, ...]"
+  # でもよい
+  #
+  - checkpoint: checkpoints/ippo_rnn/yyyymmdd/hhmm
+    step: 1000
+  #- checkpoint: checkpoints/ippo_rnn/yyyymmdd/hhmm
+  #  step: 2000

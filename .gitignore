@@ -129,3 +129,4 @@ cython_debug/
 .ruff_cache/
 
 tmp/
+checkpoints/
