@@ -20,4 +20,26 @@
 ## Structure
 <!-- - `models/`: Flax Linen modules. -->
 - `src/environment/`: JAX-native or Gymnax-based environments.
-- `ippo_rnn.py`: Main training entry point using `uv run`.
+- `src/ippo_rnn.py`: Main training entry point.
+- `tests/`: Test files mirroring `src/` structure.
+
+## uv & Tooling
+
+- **Script execution**: Always use `uv run <script>` instead of `python` directly.
+- **Add dependency**: Use `uv add <package>` (never `pip install`).
+- **Add dev dependency**: Use `uv add --dev <package>`.
+- **Sync environment**: Use `uv sync`.
+- **Lint & fix**: `uv run --frozen ruff check --fix .`
+- **Format**: `uv run --frozen ruff format .` (do not use `black`).
+- **Run tests**: `uv run --frozen pytest`
+
+## Ruff Rules (from pyproject.toml)
+
+- **Line length**: 120 characters max.
+- **Docstring style**: Google convention.
+- **Max function arguments**: 10.
+- **Max cyclomatic complexity**: 10.
+- **`assert` is allowed**: `S101` is suppressed — use `assert` freely in tests and checks.
+- **Full-width characters are allowed**: `RUF001-003` suppressed — Japanese/full-width characters OK in comments and strings.
+- **Return type annotations are optional**: `ANN2` suppressed — omitting return types is acceptable.
+- **Docstrings are optional**: `D1` suppressed — omitting docstrings is acceptable.
