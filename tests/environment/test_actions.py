@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from environment.actions import ActionType, Actions
+from environment.actions import Actions, ActionType
 
 
 class TestActionsEnumValues:

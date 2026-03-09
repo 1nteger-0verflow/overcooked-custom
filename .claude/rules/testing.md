@@ -24,3 +24,9 @@
 - **Disable JIT for debugging**: Wrap debug tests in `with jax.disable_jit():` for readable stack traces.
 - **Separate shape and value tests**: Keep shape/type assertions in separate test functions from numerical correctness checks.
 - **Gradient tests**: Assert that `jax.grad` outputs are not `None` and match expected shapes using `chex`.
+
+## Commands & Project Config
+
+- **Test directory**: `tests/` (configured via `testpaths = ["tests"]` in `pyproject.toml`).
+- **Python path**: `src/` is automatically added to `sys.path` — no manual `sys.path` manipulation needed.
+- **Run tests**: `uv run --frozen pytest` (`-v` is enabled by default).
