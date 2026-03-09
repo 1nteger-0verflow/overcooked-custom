@@ -1,4 +1,5 @@
 """Tests for environment.agent."""
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -8,13 +9,7 @@ from environment.agent import Agent
 from environment.dynamic_object import DynamicObject
 
 
-def _make_agent(
-    pos: list,
-    direction: list,
-    capacity: int = 3,
-    height: int = 8,
-    width: int = 10,
-) -> Agent:
+def _make_agent(pos: list, direction: list, capacity: int = 3, height: int = 8, width: int = 10) -> Agent:
     """単一エージェントの Agent PyTree を構築するヘルパー."""
     num_agents = len(pos)
     return Agent(
@@ -41,10 +36,10 @@ class TestGetFwdPos:
     @pytest.mark.parametrize(
         "pos,direction,expected_fwd",
         [
-            ([[2, 3]], [[-1, 0]], [[1, 3]]),   # UP
-            ([[2, 3]], [[1, 0]], [[3, 3]]),    # DOWN
-            ([[2, 3]], [[0, -1]], [[2, 2]]),   # LEFT
-            ([[2, 3]], [[0, 1]], [[2, 4]]),    # RIGHT
+            ([[2, 3]], [[-1, 0]], [[1, 3]]),  # UP
+            ([[2, 3]], [[1, 0]], [[3, 3]]),  # DOWN
+            ([[2, 3]], [[0, -1]], [[2, 2]]),  # LEFT
+            ([[2, 3]], [[0, 1]], [[2, 4]]),  # RIGHT
         ],
     )
     def test_forward_position(self, pos, direction, expected_fwd):

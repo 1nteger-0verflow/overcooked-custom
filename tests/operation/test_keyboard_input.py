@@ -1,4 +1,5 @@
 """Tests for operation.keyboard_input.KeyboardInput."""
+
 import pytest
 
 from environment.actions import Actions

@@ -6,6 +6,7 @@
 - chex によるArray形状・型検証
 - jax.jit 互換性
 """
+
 import chex
 import jax
 import jax.numpy as jnp

@@ -1,4 +1,5 @@
 """Tests for environment.menus."""
+
 import chex
 import jax.numpy as jnp
 import pytest
@@ -9,19 +10,13 @@ from environment.menus import MenuList
 
 
 def _make_menu(recipes, durations, volumes) -> MenuList:
-    cfg = OmegaConf.create(
-        [{"recipe": r, "duration": d, "volume": v} for r, d, v in zip(recipes, durations, volumes)]
-    )
+    cfg = OmegaConf.create([{"recipe": r, "duration": d, "volume": v} for r, d, v in zip(recipes, durations, volumes)])
     return MenuList.load(cfg)
 
 
 @pytest.fixture
 def simple_menu():
-    return _make_menu(
-        recipes=[[0, 0, 1], [0, 1, 1], [1, 1, 2]],
-        durations=[2, 5, 8],
-        volumes=[4, 6, 10],
-    )
+    return _make_menu(recipes=[[0, 0, 1], [0, 1, 1], [1, 1, 2]], durations=[2, 5, 8], volumes=[4, 6, 10])
 
 
 class TestMenuListLoad:

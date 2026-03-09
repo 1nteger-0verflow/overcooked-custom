@@ -1,4 +1,5 @@
 """Tests for environment.static_object."""
+
 import pytest
 
 from environment.static_object import StaticObject
@@ -34,9 +35,9 @@ class TestIsIngredientPile:
         "obj,expected",
         [
             (StaticObject.INGREDIENT_PILE_BASE - 1, False),  # 境界直下
-            (StaticObject.INGREDIENT_PILE_BASE, True),       # 境界 (0番食材)
-            (StaticObject.INGREDIENT_PILE_BASE + 5, True),   # 中間
-            (StaticObject.INGREDIENT_9, True),               # 最大食材
+            (StaticObject.INGREDIENT_PILE_BASE, True),  # 境界 (0番食材)
+            (StaticObject.INGREDIENT_PILE_BASE + 5, True),  # 中間
+            (StaticObject.INGREDIENT_9, True),  # 最大食材
             (StaticObject.EMPTY, False),
             (StaticObject.WALL, False),
             (StaticObject.COUNTER, False),

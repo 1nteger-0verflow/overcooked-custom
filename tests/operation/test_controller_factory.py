@@ -1,4 +1,5 @@
 """Tests for operation.controller_factory and operation.controller."""
+
 import pytest
 from omegaconf import OmegaConf
 
@@ -51,12 +52,7 @@ class TestControllerIntegration:
     def ctrl_config(self):
         # player: 操作種別リスト, ui: 各種別の設定 DictConfig
         return OmegaConf.create(
-            {
-                "player": ["random"],
-                "ui": {"random": None, "keyboard": None},
-                "verbose": False,
-                "confirm": False,
-            }
+            {"player": ["random"], "ui": {"random": None, "keyboard": None}, "verbose": False, "confirm": False}
         )
 
     def test_operate_returns_actions(self, minimal_env, ctrl_config):

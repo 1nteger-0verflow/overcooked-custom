@@ -1,9 +1,9 @@
 """Shared fixtures for all test modules."""
+
 import sys
 from pathlib import Path
 
 import jax
-import jax.numpy as jnp
 import pytest
 from omegaconf import OmegaConf
 
@@ -36,10 +36,7 @@ WWWWWWWWWW"""
 # Menu configs (OmegaConf)
 # ---------------------------------------------------------------------------
 _MENU_CFG = OmegaConf.create(
-    [
-        {"recipe": [0, 0, 0], "duration": 2, "volume": 4},
-        {"recipe": [0, 0, 1], "duration": 5, "volume": 6},
-    ]
+    [{"recipe": [0, 0, 0], "duration": 2, "volume": 4}, {"recipe": [0, 0, 1], "duration": 5, "volume": 6}]
 )
 
 _MENU_CFG_3TYPES = OmegaConf.create(
@@ -102,11 +99,7 @@ def _make_config(layout: str, menu_cfg, num_agents: int) -> OmegaConf:
                 "reservation": [30],
                 "congestion_rates": [[0, 0], [5, 50]],
             },
-            "customer": {
-                "patience_mean": 10,
-                "patience_std": 4,
-                "digestion_speed": 1,
-            },
+            "customer": {"patience_mean": 10, "patience_std": 4, "digestion_speed": 1},
         }
     )
 

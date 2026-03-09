@@ -3,6 +3,7 @@
 - gymnasium.utils.env_checker は JAX-native インターフェース (action_space・observation_space 未実装) に
   非互換のため適用外。代わりに chex + pytest でインターフェース・形状・型を網羅的に検証する。
 """
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -125,15 +126,7 @@ class TestStepEnv:
         assert int(jnp.squeeze(reward_type)) in valid
 
     @pytest.mark.parametrize(
-        "action",
-        [
-            Actions.RIGHT,
-            Actions.DOWN,
-            Actions.LEFT,
-            Actions.UP,
-            Actions.STAY,
-            Actions.INTERACT,
-        ],
+        "action", [Actions.RIGHT, Actions.DOWN, Actions.LEFT, Actions.UP, Actions.STAY, Actions.INTERACT]
     )
     def test_all_basic_actions_run(self, minimal_env, minimal_state, action):
         actions = jnp.array([int(action)])

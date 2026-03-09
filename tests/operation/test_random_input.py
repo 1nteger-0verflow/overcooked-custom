@@ -3,6 +3,7 @@
 Note: RandomInput は Python 標準の random.choice を使用しており JAX PRNG 非対応。
       そのため jax.jit 互換性テストは対象外とし、動作の正確性のみ検証する。
 """
+
 import pytest
 
 from operation.random_input import RandomInput

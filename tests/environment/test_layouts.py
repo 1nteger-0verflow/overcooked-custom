@@ -1,10 +1,10 @@
 """Tests for environment.layouts."""
+
 import numpy as np
 import pytest
 
 from environment.layouts import Layout
 from environment.static_object import StaticObject
-
 
 # ---------------------------------------------------------------------------
 # テスト用レイアウト文字列

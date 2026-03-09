@@ -1,4 +1,5 @@
 """Tests for environment.reset_env.Initializer."""
+
 import chex
 import jax
 import jax.numpy as jnp

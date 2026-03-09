@@ -1,4 +1,5 @@
 """Tests for environment.actions."""
+
 import chex
 import jax
 import jax.numpy as jnp
@@ -53,16 +54,16 @@ class TestActionType:
     @pytest.mark.parametrize(
         "action,expected_type,expected_idx",
         [
-            (-1, ActionType.NOP, -1),           # 無効アクション
-            (0, ActionType.MOVE, -1),            # RIGHT
-            (1, ActionType.MOVE, -1),            # DOWN
-            (2, ActionType.MOVE, -1),            # LEFT
-            (3, ActionType.MOVE, -1),            # UP
-            (4, ActionType.NOP, -1),             # STAY
-            (5, ActionType.INTERACTION, -1),     # INTERACT
-            (6, ActionType.PICK_PLACE, 0),       # PICK_PLACE_BASE
-            (7, ActionType.PICK_PLACE, 1),       # PICK_PLACE_BASE + 1
-            (9, ActionType.PICK_PLACE, 3),       # PICK_PLACE_BASE + 3
+            (-1, ActionType.NOP, -1),  # 無効アクション
+            (0, ActionType.MOVE, -1),  # RIGHT
+            (1, ActionType.MOVE, -1),  # DOWN
+            (2, ActionType.MOVE, -1),  # LEFT
+            (3, ActionType.MOVE, -1),  # UP
+            (4, ActionType.NOP, -1),  # STAY
+            (5, ActionType.INTERACTION, -1),  # INTERACT
+            (6, ActionType.PICK_PLACE, 0),  # PICK_PLACE_BASE
+            (7, ActionType.PICK_PLACE, 1),  # PICK_PLACE_BASE + 1
+            (9, ActionType.PICK_PLACE, 3),  # PICK_PLACE_BASE + 3
         ],
     )
     def test_action_type_branch(self, action, expected_type, expected_idx):
