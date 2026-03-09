@@ -6,7 +6,8 @@
         "PYTHONDONTWRITEBYTECODE": "1",
         "UV_CACHE_DIR": "/home/vscode/.cache/uv",
         "UV_LINK_MODE": "copy",
-        "UV_COMPILE_BYTECODE": "1"
+        "UV_COMPILE_BYTECODE": "1",
+        "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
     },
     "features": {
         "ghcr.io/devcontainers/features/common-utils:2": {
@@ -20,7 +21,11 @@
         },
         "ghcr.io/va-h/devcontainers-features/uv:1": {
             "shellAutocompletion": true
-        }
+        },
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "lts"
+        },
+        "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": { }
     },
     "runArgs": [ "--init", "--rm" ],
     "hostRequirements": {
@@ -33,6 +38,7 @@
     "customizations": {
         "vscode": {
             "settings": {
+                "claudeCode.useTerminal": true,
                 // Util
                 "editor.tabSize": 4,
                 "editor.formatOnSave": false,
@@ -61,6 +67,7 @@
                     "reportInvalidTypeForm": "none"
                 },
                 "debugpy.showPythonInlineValues": false,
+                "python.testing.pytestEnabled": true,
                 "ruff.importStrategy": "useBundled",
                 "ruff.interpreter": [ "${workspaceFolder}/.venv/bin/python" ],
                 // Json
@@ -104,7 +111,6 @@
                     "cuda",
                     "cudnn",
                     "dtype",
-                    "fourcc",
                     "gelu",
                     "ndarray",
                     "tqdm"
@@ -125,5 +131,6 @@
         }
     },
     "mounts": [
+        "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
     ]
 }
