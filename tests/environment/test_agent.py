@@ -6,7 +6,6 @@ import jax.numpy as jnp
 import pytest
 
 from environment.agent import Agent
-from environment.dynamic_object import DynamicObject
 
 
 def _make_agent(pos: list, direction: list, capacity: int = 3, height: int = 8, width: int = 10) -> Agent:
@@ -34,7 +33,7 @@ class TestNumAgents:
 
 class TestGetFwdPos:
     @pytest.mark.parametrize(
-        "pos,direction,expected_fwd",
+        ("pos", "direction", "expected_fwd"),
         [
             ([[2, 3]], [[-1, 0]], [[1, 3]]),  # UP
             ([[2, 3]], [[1, 0]], [[3, 3]]),  # DOWN
@@ -54,7 +53,6 @@ class TestMoveInBounds:
 
     def test_normal_move(self):
         # pos=(2,3), dir=DOWN=(1,0) → new_pos=(3,3)
-        agent = _make_agent([[2, 3]], [[1, 0]])
         # move_in_bounds は単一エージェントを想定 (pos が 1-dim)
         single_agent = Agent(
             pos=jnp.array([2, 3], dtype=jnp.int32),
@@ -128,7 +126,7 @@ class TestComputeViewBox:
             grid_observed_step=jnp.full((1, 8, 10), -1, dtype=jnp.int32),
         )
         boxes = agent.compute_view_box(8, 10)
-        x_min, x_max, y_min, y_max = map(int, boxes[0])
+        x_min, _x_max, y_min, _y_max = map(int, boxes[0])
         assert y_min == 0  # -3 がクリップされて 0
         assert x_min == 0  # -1 がクリップされて 0
 
@@ -162,3 +160,25 @@ class TestUpdateObservedGrid:
         agent = _make_agent([[2, 3]], [[-1, 0]])
         updated = agent.update_observed_grid(jnp.array(1), height=8, width=10)
         assert isinstance(updated, Agent)
+
+
+class TestAgentStr:
+    """Agent.__str__ の文字列出力テスト (L99-111)."""
+
+    def test_str_returns_string(self):
+        agent = _make_agent([[2, 3]], [[-1, 0]])
+        assert isinstance(str(agent), str)
+
+    def test_str_contains_agent_label(self):
+        agent = _make_agent([[2, 3]], [[-1, 0]])
+        assert "agent0" in str(agent)
+
+    def test_str_two_agents_both_labeled(self):
+        agent = _make_agent([[2, 3], [5, 6]], [[-1, 0], [1, 0]])
+        result = str(agent)
+        assert "agent0" in result
+        assert "agent1" in result
+
+    def test_str_contains_pos_info(self):
+        agent = _make_agent([[2, 3]], [[-1, 0]])
+        assert "pos" in str(agent)

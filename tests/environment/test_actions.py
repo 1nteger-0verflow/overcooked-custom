@@ -52,7 +52,7 @@ class TestActionType:
     """action_type の分岐網羅テスト."""
 
     @pytest.mark.parametrize(
-        "action,expected_type,expected_idx",
+        ("action", "expected_type", "expected_idx"),
         [
             (-1, ActionType.NOP, -1),  # 無効アクション
             (0, ActionType.MOVE, -1),  # RIGHT
@@ -74,7 +74,7 @@ class TestActionType:
     def test_action_type_jit_compatible(self):
         """jax.jit でラップしても同一結果を返す."""
         fn = jax.jit(Actions.action_type)
-        act_type, idx = fn(5)
+        act_type, _idx = fn(5)
         assert int(act_type) == int(ActionType.INTERACTION)
 
 
@@ -82,7 +82,7 @@ class TestActionToDirection:
     """action_to_direction の方向ベクトルテスト."""
 
     @pytest.mark.parametrize(
-        "action,expected",
+        ("action", "expected"),
         [
             (Actions.RIGHT, [0, +1]),
             (Actions.DOWN, [+1, 0]),
@@ -103,7 +103,7 @@ class TestActionToDirection:
 
 class TestActionToString:
     @pytest.mark.parametrize(
-        "value,expected",
+        ("value", "expected"),
         [
             (0, "RIGHT"),
             (1, "DOWN"),

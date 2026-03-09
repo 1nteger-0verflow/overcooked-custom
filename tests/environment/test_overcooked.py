@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import pytest
 
 from environment.actions import Actions
-from environment.overcooked import OvercookedCustom
 from environment.reward import RewardType
 from environment.state import State
 
@@ -75,7 +74,7 @@ class TestReset:
 # ---------------------------------------------------------------------------
 class TestStepEnv:
     @pytest.fixture
-    def step_result_minimal(self, minimal_env, minimal_state, prng_key):
+    def step_result_minimal(self, minimal_env, minimal_state):
         actions = jnp.array([int(Actions.STAY)])
         key = jax.random.PRNGKey(1)
         return minimal_env.step_env(minimal_state, actions, key)
@@ -119,8 +118,6 @@ class TestStepEnv:
         assert not bool(done)
 
     def test_reward_type_is_valid(self, step_result_minimal):
-        import jax.numpy as jnp
-
         _, _, _, _, reward_type, _ = step_result_minimal
         valid = {int(r) for r in RewardType}
         assert int(jnp.squeeze(reward_type)) in valid
@@ -131,7 +128,7 @@ class TestStepEnv:
     def test_all_basic_actions_run(self, minimal_env, minimal_state, action):
         actions = jnp.array([int(action)])
         key = jax.random.PRNGKey(10 + int(action))
-        obs, state, rewards, shaped, rtype, done = minimal_env.step_env(minimal_state, actions, key)
+        obs, state, *_ = minimal_env.step_env(minimal_state, actions, key)
         chex.assert_shape(obs, minimal_env.obs_shape)
         assert isinstance(state, State)
 
@@ -149,7 +146,7 @@ class TestStepEnv:
 # ---------------------------------------------------------------------------
 class TestUpdateTimestep:
     def test_increments_time(self, minimal_env, minimal_state):
-        new_state, done = minimal_env.update_timestep(minimal_state)
+        new_state, _ = minimal_env.update_timestep(minimal_state)
         assert int(new_state.time) == int(minimal_state.time) + 1
 
     def test_done_before_terminal_time(self, minimal_env, minimal_state):
@@ -157,8 +154,6 @@ class TestUpdateTimestep:
         assert not bool(done)
 
     def test_done_at_terminal_time(self, minimal_env, minimal_config):
-        from omegaconf import OmegaConf
-
         terminal = int(minimal_config.schedule.terminal_time)
         _, state = minimal_env.reset(jax.random.PRNGKey(0))
         state = state.replace(time=jnp.array(terminal - 1))
@@ -173,10 +168,10 @@ class TestRollout:
     def test_short_rollout_does_not_raise(self, minimal_env, prng_key):
         obs, state = minimal_env.reset(prng_key)
         key = prng_key
-        for step in range(5):
+        for _ in range(5):
             key, subkey = jax.random.split(key)
             actions = jnp.array([int(Actions.STAY)])
-            obs, state, rewards, shaped, rtype, done = minimal_env.step_env(state, actions, subkey)
+            obs, state, *_ = minimal_env.step_env(state, actions, subkey)
         chex.assert_shape(obs, minimal_env.obs_shape)
 
     def test_rollout_state_time_increases(self, minimal_env, prng_key):

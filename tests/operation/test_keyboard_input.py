@@ -26,7 +26,7 @@ class TestKeyboardInputProperties:
 
 class TestInputKey:
     @pytest.mark.parametrize(
-        "key,expected_action",
+        ("key", "expected_action"),
         [
             ("up", int(Actions.UP)),
             ("down", int(Actions.DOWN)),
@@ -41,7 +41,7 @@ class TestInputKey:
         ctrl.input_key(key)
         assert ctrl.get_action() == expected_action
 
-    @pytest.mark.parametrize("num_key,expected_slot", [(1, 0), (2, 1), (3, 2)])
+    @pytest.mark.parametrize(("num_key", "expected_slot"), [(1, 0), (2, 1), (3, 2)])
     def test_numeric_keys_pick_place(self, num_key, expected_slot):
         ctrl = KeyboardInput(agent_id=0, verbose=False, confirm=False)
         accepted = ctrl.input_key(str(num_key))
@@ -74,8 +74,7 @@ class TestIsDone:
     def test_confirm_mode_not_done_before_confirm(self, confirm_controller):
         confirm_controller.input_observation(None)
         confirm_controller.input_key("up")
-        # confirm=True のとき Enter 押下前は done でない場合あり
-        # (実装依存のため例外がないことのみ確認)
+        # confirm=True のとき Enter 押下前は done でない場合あり。実装依存のため例外なし確認のみ
         _ = confirm_controller.is_done
 
 

@@ -1,10 +1,15 @@
 """Tests for environment.reset_env.Initializer."""
 
+import warnings
+
 import chex
 import jax
 import jax.numpy as jnp
-import pytest
+from omegaconf import OmegaConf
 
+from environment.actions import Actions
+from environment.customer import CustomerStatus
+from environment.overcooked import OvercookedCustom
 from environment.state import State
 
 
@@ -37,8 +42,6 @@ class TestInitializerMinimal:
         assert list(map(int, dir_)) == [-1, 0]
 
     def test_prev_actions_is_stay(self, minimal_state):
-        from environment.actions import Actions
-
         prev = minimal_state.prev_actions
         chex.assert_shape(prev, (1,))
         assert int(prev[0]) == int(Actions.STAY)
@@ -61,8 +64,6 @@ class TestInitializerCompact:
             assert 0 <= x < compact_env.width
 
     def test_customer_status_all_empty(self, compact_state):
-        from environment.customer import CustomerStatus
-
         statuses = compact_state.customer.status
         assert all(int(s) == int(CustomerStatus.empty) for s in statuses)
 
@@ -82,8 +83,6 @@ class TestInitializerCompact:
 
     def test_different_keys_may_differ_with_random_position(self, compact_config):
         """random_agent_position=True のとき鍵が違えば位置が変わりうる."""
-        from environment.overcooked import OvercookedCustom
-
         env = OvercookedCustom(compact_config, random_agent_position=True)
         key1 = jax.random.PRNGKey(1)
         key2 = jax.random.PRNGKey(999)
@@ -106,3 +105,48 @@ class TestInitializerObsShape:
         obs, _ = compact_env.reset(prng_key)
         expected = compact_env.obs_shape
         chex.assert_shape(obs, expected)
+
+
+# ---------------------------------------------------------------------------
+# 不足パラメータ補填テスト (reset_env.py L73-113)
+# ---------------------------------------------------------------------------
+class TestInitializerInsufficientParams:
+    """forward_view_size / side_view_size / capacity がエージェント数より少ない場合の警告と補填."""
+
+    def _make_cfg(self, compact_config, fwd: list, side: list, cap: list) -> OmegaConf:
+        cfg = OmegaConf.to_container(compact_config, resolve=True)
+        cfg["parameter"]["forward_view_size"] = fwd
+        cfg["parameter"]["side_view_size"] = side
+        cfg["parameter"]["capacity"] = cap
+        return OmegaConf.create(cfg)
+
+    def test_insufficient_forward_view_warns(self, compact_config):
+        cfg = self._make_cfg(compact_config, fwd=[2], side=[1, 1], cap=[3, 3])
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            OvercookedCustom(cfg)
+        assert any("forward_view_size" in str(warning.message) for warning in w)
+
+    def test_insufficient_side_view_warns(self, compact_config):
+        cfg = self._make_cfg(compact_config, fwd=[1, 1], side=[2], cap=[3, 3])
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            OvercookedCustom(cfg)
+        assert any("side_view_size" in str(warning.message) for warning in w)
+
+    def test_insufficient_capacity_warns(self, compact_config):
+        cfg = self._make_cfg(compact_config, fwd=[1, 1], side=[1, 1], cap=[3])
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            OvercookedCustom(cfg)
+        assert any("capacity" in str(warning.message) for warning in w)
+
+    def test_insufficient_forward_view_env_still_initializes(self, compact_config, prng_key):
+        """補填後も reset() が正常に動作する."""
+        cfg = self._make_cfg(compact_config, fwd=[2], side=[1, 1], cap=[3, 3])
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            env = OvercookedCustom(cfg)
+        assert env.num_agents == 2
+        _, state = env.reset(prng_key)
+        assert isinstance(state, State)

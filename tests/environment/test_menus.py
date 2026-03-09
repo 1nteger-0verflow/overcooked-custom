@@ -37,7 +37,7 @@ class TestMenuListLoad:
         assert row0 == [0, 0, 1]
 
     def test_empty_menu_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match="At least one recipe"):
             _make_menu([], [], [])
 
 
@@ -48,7 +48,7 @@ class TestMenuListOrder:
         assert list(map(int, result)) == [0, 0, 1]
 
     def test_order_invalid_index_raises(self, simple_menu):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid order"):
             simple_menu.order(99)
 
     def test_order_to_ingredients(self, simple_menu):

@@ -4,6 +4,7 @@ import pytest
 from omegaconf import OmegaConf
 
 from operation.agent_controller import AgentController
+from operation.controller import Controller
 from operation.controller_factory import create_controller
 from operation.keyboard_input import KeyboardInput
 from operation.random_input import RandomInput
@@ -24,7 +25,7 @@ class TestCreateControllerRouting:
         assert isinstance(ctrl, RandomInput)
 
     def test_unknown_type_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             create_controller(_op("nonexistent"), agent_id=0, num_actions=9, verbose=False, confirm=False)
 
     def test_returns_agent_controller_subclass(self):
@@ -56,14 +57,10 @@ class TestControllerIntegration:
         )
 
     def test_operate_returns_actions(self, minimal_env, ctrl_config):
-        from operation.controller import Controller
-
         ctrl = Controller(minimal_env, ctrl_config)
         actions = ctrl.operate()
         assert len(actions) == minimal_env.num_agents
 
     def test_is_auto_true_for_all_random(self, minimal_env, ctrl_config):
-        from operation.controller import Controller
-
         ctrl = Controller(minimal_env, ctrl_config)
         assert ctrl.is_auto()

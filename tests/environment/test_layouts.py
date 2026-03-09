@@ -1,6 +1,5 @@
 """Tests for environment.layouts."""
 
-import numpy as np
 import pytest
 
 from environment.layouts import Layout

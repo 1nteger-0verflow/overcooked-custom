@@ -1,13 +1,10 @@
 """Shared fixtures for all test modules."""
 
-import sys
-from pathlib import Path
-
 import jax
 import pytest
 from omegaconf import OmegaConf
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from environment.overcooked import OvercookedCustom
 
 # ---------------------------------------------------------------------------
 # Layout strings
@@ -48,7 +45,7 @@ _MENU_CFG_3TYPES = OmegaConf.create(
 )
 
 
-def _make_config(layout: str, menu_cfg, num_agents: int) -> OmegaConf:
+def _make_config(layout: str, menu_cfg: OmegaConf, num_agents: int) -> OmegaConf:
     return OmegaConf.create(
         {
             "layout": layout,
@@ -146,15 +143,11 @@ def compact_config():
 
 @pytest.fixture(scope="session")
 def minimal_env(minimal_config):
-    from environment.overcooked import OvercookedCustom
-
     return OvercookedCustom(minimal_config)
 
 
 @pytest.fixture(scope="session")
 def compact_env(compact_config):
-    from environment.overcooked import OvercookedCustom
-
     return OvercookedCustom(compact_config)
 
 

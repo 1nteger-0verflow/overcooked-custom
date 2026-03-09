@@ -2,6 +2,7 @@
 
 import pytest
 
+from environment.dynamic_object import DynamicObject
 from environment.static_object import StaticObject
 
 
@@ -32,7 +33,7 @@ class TestIsIngredientPile:
     """is_ingredient_pile の境界値テスト."""
 
     @pytest.mark.parametrize(
-        "obj,expected",
+        ("obj", "expected"),
         [
             (StaticObject.INGREDIENT_PILE_BASE - 1, False),  # 境界直下
             (StaticObject.INGREDIENT_PILE_BASE, True),  # 境界 (0番食材)
@@ -55,8 +56,6 @@ class TestGetIngredient:
         pile = StaticObject.ingredient_pile(idx)
         result = StaticObject.get_ingredient(pile)
         # get_ingredient はDynamicObject.ingredient(idx) を返す
-        from environment.dynamic_object import DynamicObject
-
         expected = DynamicObject.ingredient(idx)
         assert int(result) == int(expected)
 
