@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections import abc
 
 import jax
 import jax.numpy as jnp
@@ -17,7 +17,7 @@ def downsample(img: jnp.ndarray, factor: int):
     return img.astype(jnp.uint8)
 
 
-def fill_coords(img: jnp.ndarray, fn: Callable, color: jnp.ndarray):
+def fill_coords(img: jnp.ndarray, fn: abc.Callable[[float, float], bool], color: jnp.ndarray):
     """Fill pixels of an image with coordinates matching a filter function."""
 
     def _mask_fn(y: int, x: int):
@@ -32,7 +32,7 @@ def fill_coords(img: jnp.ndarray, fn: Callable, color: jnp.ndarray):
     return jnp.where(mask[:, :, None], color_img, img)
 
 
-def rotate_fn(fin: Callable, cx: float, cy: float, theta: float):
+def rotate_fn(fin: abc.Callable[[float, float], bool], cx: float, cy: float, theta: float):
     def fout(x: float, y: float):
         x = x - cx
         y = y - cy
