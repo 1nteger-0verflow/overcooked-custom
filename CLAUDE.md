@@ -13,6 +13,9 @@
 ## Python General
 - **Dataclasses**: Group configs and hyperparameters into `@dataclass` or `chex.dataclass`. Never use plain dicts for structured config.
 - **Type Annotations**: All function signatures must have type hints. Use `beartype` for runtime validation.
+- **collections.abc import**: Always use `from collections import abc` (never `from collections.abc import ...` or `import collections.abc`).
+- **Generic types**: Always specify element types (e.g., `abc.Sequence[str]`, not `abc.Sequence`).
+- **jaxtyping first**: Prefer `jaxtyping` for JAX array annotations (e.g., `Float[Array, "batch dim"]`). Use standard generics only for non-array types.
 - **No Magic Numbers**: Never use unnamed constants inline. Define named constants or collect them in a config dataclass.
 - **Import Order**: Use `ruff` + `isort` for import formatting (`uv run ruff check --fix`).
 - **Explicit Errors**: Raise explicit exceptions for RL-specific errors (shape mismatches, device mismatches) rather than letting them propagate silently.
@@ -32,6 +35,9 @@
 - **Lint & fix**: `uv run --frozen ruff check --fix .`
 - **Format**: `uv run --frozen ruff format .` (do not use `black`).
 - **Run tests**: `uv run --frozen pytest`
+
+## Workflow Permissions
+- **Ruff auto-fix**: Run `uv run --frozen ruff check --fix .` and `uv run --frozen ruff format .` automatically without asking for user confirmation.
 
 ## Ruff Rules (from pyproject.toml)
 

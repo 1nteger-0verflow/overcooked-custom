@@ -13,7 +13,8 @@ class MenuList(PyTreeNode):
 
     def __post_init__(self):
         if self.menu.shape[0] < 1:
-            raise ValueError("At least one recipe must be provided")
+            msg = "At least one recipe must be provided"
+            raise ValueError(msg)
 
     @property
     def num_menus(self) -> int:
@@ -21,11 +22,12 @@ class MenuList(PyTreeNode):
 
     def order(self, menu_index: int) -> jax.Array:
         if menu_index >= self.num_menus:
-            raise ValueError("invalid order")
+            msg = "invalid order"
+            raise ValueError(msg)
         return self.menu[menu_index]
 
     @staticmethod
-    def load(menus):
+    def load(menus: list):
         menu = jnp.array([config.recipe for config in menus], dtype=int)
         duration = jnp.array([config.duration for config in menus], dtype=int)
         volume = jnp.array([config.volume for config in menus], dtype=int)
@@ -46,7 +48,7 @@ class MenuList(PyTreeNode):
         food = DynamicObject.get_recipe_encoding(ingredients)
         return DynamicObject.PLATE | DynamicObject.COOKED | DynamicObject.set_count(food, 0)
 
-    def get_duration(self, obj):
+    def get_duration(self, obj: jax.Array):
         ingredient_idxs = DynamicObject.get_ingredient_idx_list_jit(obj)
         # 調理中の食材の組み合わせがメニュー中にあるか
         is_menu_table = jnp.all(jnp.sort(self.menu) == ingredient_idxs, axis=1)
@@ -54,7 +56,7 @@ class MenuList(PyTreeNode):
         in_menu = jnp.any(is_menu_table)
         return jax.lax.cond(in_menu, lambda: (True, self.duration[menu_idx]), lambda: (False, 1))
 
-    def get_volume(self, obj):
+    def get_volume(self, obj: jax.Array):
         ingredient_idxs = DynamicObject.get_ingredient_idx_list_jit(obj)
         # 調理中の食材の組み合わせがメニュー中にあるか
         is_menu_table = jnp.all(jnp.sort(self.menu) == ingredient_idxs, axis=1)
@@ -62,7 +64,7 @@ class MenuList(PyTreeNode):
         in_menu = jnp.any(is_menu_table)
         return jax.lax.cond(in_menu, lambda: (True, self.volume[menu_idx]), lambda: (False, 1))
 
-    def correct(self, dish, ordered_menus: jnp.ndarray):
+    def correct(self, dish: jax.Array, ordered_menus: jnp.ndarray):
         # ordered_menusのなかにdishと分量の違いを除いて一致するものがあれば正しい
         # 分量はランダムに変動するので除外する
         # 料理が-1になることはないのでそのまま比較する

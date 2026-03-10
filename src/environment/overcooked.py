@@ -14,7 +14,7 @@ from environment.state import State
 
 
 class OvercookedCustom:
-    def __init__(self, config: DictConfig, random_agent_position: bool = False):
+    def __init__(self, config: DictConfig, *, random_agent_position: bool = False):
         self.config = config
         self.layout = Layout.from_string(grid=config.layout)
         self.menu = MenuList.load(menus=config.menu)
@@ -23,7 +23,7 @@ class OvercookedCustom:
         self.height = self.layout.height
         self.width = self.layout.width
 
-        self.initializer = Initializer(config, self.layout, self.menu, random_agent_position)
+        self.initializer = Initializer(config, self.layout, self.menu, random_agent_position=random_agent_position)
         self.processor = Processor(config, self.layout)
         self.observer = Observer(config, self.layout)
 
@@ -46,7 +46,7 @@ class OvercookedCustom:
         obs, _ = self.observer.get_obs(state)
 
         rewards = jnp.array([reward for _ in range(self.num_agents)])
-        shaped_rewards = jnp.array([shaped_reward for shaped_reward in shaped_rewards_value])
+        shaped_rewards = jnp.array(list(shaped_rewards_value))
 
         return (lax.stop_gradient(obs), lax.stop_gradient(state), rewards, shaped_rewards, reward_type, done)
 

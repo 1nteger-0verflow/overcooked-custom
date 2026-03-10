@@ -70,7 +70,7 @@ class TestCustomerIsTable:
         assert not bool(_make_customer(2).is_table(jnp.array([0, 0])))
 
     def test_get_table_id_second_seat(self):
-        assert int(_make_customer(2).get_tableID(jnp.array([4, 5]))) == 1
+        assert int(_make_customer(2).get_table_id(jnp.array([4, 5]))) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -96,10 +96,7 @@ class TestCustomerAppend:
 class TestCustomerLeave:
     def test_leave_no_food_clears_seat(self):
         c = _make_customer(2)
-        c = c.replace(
-            used=c.used.at[0].set(1),
-            status=c.status.at[0].set(CustomerStatus.waiting_check),
-        )
+        c = c.replace(used=c.used.at[0].set(1), status=c.status.at[0].set(CustomerStatus.waiting_check))
         c2 = c.leave(0)
         assert int(c2.used[0]) == 0
         assert int(c2.status[0]) == int(CustomerStatus.empty)
@@ -123,10 +120,7 @@ class TestCustomerLeave:
 class TestCustomerPutDishOnTable:
     def test_put_dish_sets_eating_status(self):
         c = _make_customer(2)
-        c = c.replace(
-            used=c.used.at[0].set(1),
-            status=c.status.at[0].set(CustomerStatus.waiting_food),
-        )
+        c = c.replace(used=c.used.at[0].set(1), status=c.status.at[0].set(CustomerStatus.waiting_food))
         plate = DynamicObject.get_clean_plates(1)
         c2 = c.put_dish_on_table(0, plate, 0)
         assert int(c2.status[0]) == int(CustomerStatus.eating_food)
@@ -187,8 +181,7 @@ class TestCustomerDiscribeCustomer:
         food = menu.order_to_complete_food(0)
         c = _make_customer(2)
         c = c.replace(
-            status=c.status.at[0].set(CustomerStatus.waiting_food),
-            ordered_menu=c.ordered_menu.at[0, 0].set(food),
+            status=c.status.at[0].set(CustomerStatus.waiting_food), ordered_menu=c.ordered_menu.at[0, 0].set(food)
         )
         assert "注文" in c.discribe_customer(menu)
 
@@ -196,20 +189,14 @@ class TestCustomerDiscribeCustomer:
         menu = MenuList.load(menu_cfg)
         food = menu.order_to_complete_food(0)
         c = _make_customer(2)
-        c = c.replace(
-            status=c.status.at[0].set(CustomerStatus.eating_food),
-            food=c.food.at[0, 0].set(food),
-        )
+        c = c.replace(status=c.status.at[0].set(CustomerStatus.eating_food), food=c.food.at[0, 0].set(food))
         assert "配膳" in c.discribe_customer(menu)
 
     def test_contains_food_info_when_waiting_check(self, menu_cfg):
         menu = MenuList.load(menu_cfg)
         food = menu.order_to_complete_food(0)
         c = _make_customer(2)
-        c = c.replace(
-            status=c.status.at[0].set(CustomerStatus.waiting_check),
-            food=c.food.at[0, 0].set(food),
-        )
+        c = c.replace(status=c.status.at[0].set(CustomerStatus.waiting_check), food=c.food.at[0, 0].set(food))
         assert "配膳" in c.discribe_customer(menu)
 
 

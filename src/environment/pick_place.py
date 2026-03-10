@@ -1,16 +1,17 @@
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Int, Key
 from omegaconf import DictConfig
 
 from environment.agent import Agent
-from environment.customer import CustomerStatus
+from environment.customer import Customer, CustomerStatus
 from environment.dynamic_object import DynamicObject
 from environment.reward import RewardType
 from environment.state import Channel, State
 from environment.static_object import StaticObject
 
 
-def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.Array, config: DictConfig):
+def pick_and_place(state: State, agent: Agent, key: Key[Array, ""], storage_idx: Int[Array, ""], config: DictConfig):
     """Assume agent took interact actions. Result depends on what agent is facing and what it is holding."""
     # 1体のエージェントの前方のセル1か所に対する処理
     inventory = agent.inventory[storage_idx]
@@ -25,13 +26,13 @@ def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.
     penalty = config.reward.penalty
     sink_capacity = config.parameter.sink_capacity
 
-    def _no_op(state, agent):
+    def _no_op(state: State, agent: Agent):
         return (state, agent, 0.0, -penalty.ineffective_interaction, RewardType.FAIL_PICK_PLACE)
 
-    def _add_ingredient(state, agent):
-        def _start_cooking(inventory):
+    def _add_ingredient(state: State, agent: Agent):
+        def _start_cooking(inventory: Int[Array, "max_storage"]):
             new_obj = DynamicObject.add_ingredient(interact_object, inventory[storage_idx])
-            is_correct_recipe, cooking_duration = state.menu.get_duration(new_obj)
+            _is_correct_recipe, cooking_duration = state.menu.get_duration(new_obj)
             # cooking_durationを指定範囲内の倍率でばらつかせる
             range_min, range_max = config.parameter.cooking_duration_range
             duration_coeff = jax.random.uniform(key, (), minval=range_min, maxval=range_max)
@@ -39,7 +40,7 @@ def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.
             new_cell = interact_cell.at[Channel.obj].set(new_obj).at[Channel.extra].set(cooking_duration)
             return (new_cell, inventory.at[storage_idx].set(DynamicObject.EMPTY), shaped.pot_start_cooking)
 
-        def _add(inventory):
+        def _add(inventory: Int[Array, "max_storage"]):
             new_obj = DynamicObject.add_ingredient(interact_object, inventory[storage_idx])
             new_cell = interact_cell.at[Channel.obj].set(new_obj)
             return (new_cell, inventory.at[storage_idx].set(DynamicObject.EMPTY), shaped.placement_in_pot)
@@ -62,8 +63,8 @@ def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.
         new_agent = agent.replace(inventory=new_inventory)
         return (state.replace(grid=new_grid), new_agent, 0.0, shaped_reward, RewardType.ADD_INGREDIENT)
 
-    def _put_food_on_plate(state, agent):
-        def _do_plating(inventory):
+    def _put_food_on_plate(state: State, agent: Agent):
+        def _do_plating(inventory: Int[Array, "max_storage"]):
             plated_food = inventory.at[storage_idx].set(interact_object | DynamicObject.PLATE)
             return (DynamicObject.EMPTY, plated_food, shaped.dish_pickup, RewardType.PLATING)
 
@@ -78,17 +79,17 @@ def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.
         new_agent = agent.replace(inventory=new_inventory)
         return state.replace(grid=new_grid), new_agent, 0.0, dish_reward, reward_type
 
-    def _deliver_dish(state, agent):
+    def _deliver_dish(state: State, agent: Agent):
         customer = state.customer
-        tableID = customer.get_tableID(fwd_pos)
+        table_id = customer.get_table_id(fwd_pos)
         is_correct_dish, correct_order_idx = state.menu.correct(
-            agent.inventory[storage_idx], customer.ordered_menu[tableID]
+            agent.inventory[storage_idx], customer.ordered_menu[table_id]
         )
         new_inventory, new_customer = jax.lax.cond(
             is_correct_dish,
             lambda: (
                 agent.inventory.at[storage_idx].set(DynamicObject.EMPTY),
-                customer.put_dish_on_table(tableID, agent.inventory[storage_idx], correct_order_idx),
+                customer.put_dish_on_table(table_id, agent.inventory[storage_idx], correct_order_idx),
             ),
             lambda: (agent.inventory, customer),
         )
@@ -97,22 +98,22 @@ def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.
         delivery_reward = (
             is_correct_dish
             * config.reward.shaped_reward.deliver_food
-            * jnp.clip((1.0 - (state.time - customer.time[tableID]) / 100.0), min=0.0)
+            * jnp.clip((1.0 - (state.time - customer.time[table_id]) / 100.0), min=0.0)
         ) - (1 - is_correct_dish) * penalty.erroneous_delivery
         # TODO: 誤提供はshaped_reward
         return (state.replace(customer=new_customer), new_agent, 0.0, delivery_reward, RewardType.DELIVERY)
 
-    def _retrieve_plate(state, agent):
+    def _retrieve_plate(state: State, agent: Agent):
         customer = state.customer
-        tableID = customer.get_tableID(fwd_pos)
+        table_id = customer.get_table_id(fwd_pos)
 
-        def _retrieve(customer):
-            idx = jnp.argmax(customer.food[tableID] == DynamicObject.USED | DynamicObject.PLATE)
-            new_food = customer.food.at[tableID, idx].set(DynamicObject.EMPTY)
+        def _retrieve(customer: Customer):
+            idx = jnp.argmax(customer.food[table_id] == DynamicObject.USED | DynamicObject.PLATE)
+            new_food = customer.food.at[table_id, idx].set(DynamicObject.EMPTY)
             new_inventory = agent.inventory.at[storage_idx].set(DynamicObject.PLATE | DynamicObject.USED | 1)
             return new_inventory, new_food
 
-        exists_empty_plate = jnp.sum(customer.food[tableID] == DynamicObject.USED | DynamicObject.PLATE) > 0
+        exists_empty_plate = jnp.sum(customer.food[table_id] == DynamicObject.USED | DynamicObject.PLATE) > 0
         new_inventory, new_food = jax.lax.cond(
             exists_empty_plate, _retrieve, lambda _: (agent.inventory, customer.food), customer
         )
@@ -125,40 +126,40 @@ def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.
         new_customer = customer.replace(food=new_food)
         return (state.replace(customer=new_customer), new_agent, 0.0, plate_retrieve_reward, reward_type)
 
-    def _clean_table(state, agent):
+    def _clean_table(state: State, agent: Agent):
         customer = state.customer
-        tableID = customer.get_tableID(fwd_pos)
-        picked_up, new_customer = customer.cleanup(tableID)
+        table_id = customer.get_table_id(fwd_pos)
+        picked_up, new_customer = customer.cleanup(table_id)
         new_inventory = agent.inventory.at[storage_idx].set(picked_up)
         new_agent = agent.replace(inventory=new_inventory)
         return (state.replace(customer=new_customer), new_agent, 0.0, shaped.clean_table, RewardType.CLEAN_TABLE)
 
-    def _pickup(state, agent):
+    def _pickup(state: State, agent: Agent):
         picked_obj, remainings = DynamicObject.pick(interact_object)
         new_grid = state.grid.at[fwd_pos[0], fwd_pos[1], Channel.obj].set(remainings)
         new_inventory = agent.inventory.at[storage_idx].set(picked_obj)
         new_agent = agent.replace(inventory=new_inventory)
         return state.replace(grid=new_grid), new_agent, 0.0, 0.0, RewardType.PICKUP
 
-    def _pickup_ingredient(state, agent):
+    def _pickup_ingredient(state: State, agent: Agent):
         ingredient = StaticObject.get_ingredient(interact_item)
         new_inventory = agent.inventory.at[storage_idx].set(ingredient)
         new_agent = agent.replace(inventory=new_inventory)
         return state, new_agent, 0.0, 0.0, RewardType.PICKUP
 
-    def _place(state, agent):
+    def _place(state: State, agent: Agent):
         placed_obj, stackings = DynamicObject.place(interact_object, agent.inventory[storage_idx])
         new_grid = state.grid.at[*fwd_pos, Channel.obj].set(stackings)
         new_inventory = agent.inventory.at[storage_idx].set(placed_obj)
         new_agent = agent.replace(inventory=new_inventory)
         return state.replace(grid=new_grid), new_agent, 0.0, 0.0, RewardType.PLACE
 
-    def _soak_plate(state, agent):
+    def _soak_plate(state: State, agent: Agent):
         soaked_plate_count = DynamicObject.get_count(interact_object)
         new_obj, stackings = jax.lax.cond(
             soaked_plate_count < sink_capacity,
             DynamicObject.place,
-            lambda obj, inv: (agent.inventory[storage_idx], interact_object),
+            lambda _obj, _inv: (agent.inventory[storage_idx], interact_object),
             interact_object,
             agent.inventory[storage_idx],
         )
@@ -172,7 +173,7 @@ def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.
         new_agent = agent.replace(inventory=new_inventory)
         return state.replace(grid=new_grid), new_agent, 0.0, soak_reward, reward_type
 
-    def _dispose_garbage(state, agent):
+    def _dispose_garbage(state: State, agent: Agent):
         inventory = agent.inventory[storage_idx]
         new_inventory = jax.lax.cond(
             inventory & DynamicObject.PLATE,
@@ -211,7 +212,7 @@ def pick_and_place(state: State, agent: Agent, key: jax.Array, storage_idx: jax.
     # Booleans depending on customer status
     customer_status = jax.lax.cond(
         state.customer.is_table(fwd_pos),
-        lambda: state.customer.status[state.customer.get_tableID(fwd_pos)],
+        lambda: state.customer.status[state.customer.get_table_id(fwd_pos)],
         lambda: CustomerStatus.empty,
     )
     is_customer_waiting_food = customer_status == CustomerStatus.waiting_food

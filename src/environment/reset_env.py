@@ -2,6 +2,7 @@ import warnings
 
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Bool, Int, Key
 from omegaconf import DictConfig
 
 from environment.actions import Actions
@@ -14,7 +15,7 @@ from environment.state import Channel, State
 from environment.static_object import StaticObject
 
 
-def _compute_enclosed_spaces(empty_mask: jnp.ndarray) -> jnp.ndarray:
+def _compute_enclosed_spaces(empty_mask: Bool[Array, "H W"]) -> Int[Array, "H W"]:
     """JaxMARL/jaxmarl/environments/overcooked_v2/utils.py.
 
     エージェントが移動して到達できる範囲内に同じIDを振ったarrayを返す。
@@ -29,12 +30,12 @@ def _compute_enclosed_spaces(empty_mask: jnp.ndarray) -> jnp.ndarray:
     # 上下左右の移動方向
     directions = jnp.array([[-1, 0], [+1, 0], [0, -1], [0, +1]])
 
-    def _body_fun(val):
+    def _body_fun(val: tuple[bool, Int[Array, "H W"]]):
         _, current_grid = val
 
-        def _next_val(pos):
-            def _move_in_bounds(dir):
-                return jnp.clip(pos + dir, min=0, max=jnp.array([height - 1, width - 1]))
+        def _next_val(pos: Int[Array, "2"]):
+            def _move_in_bounds(direction: Int[Array, "2"]):
+                return jnp.clip(pos + direction, min=0, max=jnp.array([height - 1, width - 1]))
 
             neighbors = jax.vmap(_move_in_bounds)(directions)
             neighbour_values = current_grid[*neighbors.T]
@@ -50,7 +51,7 @@ def _compute_enclosed_spaces(empty_mask: jnp.ndarray) -> jnp.ndarray:
         stop = jnp.all(current_grid == new_grid)
         return stop, new_grid
 
-    def _cond_fun(val):
+    def _cond_fun(val: tuple[bool, Int[Array, "H W"]]):
         return ~val[0]
 
     initial_val = (False, id_grid)
@@ -59,7 +60,7 @@ def _compute_enclosed_spaces(empty_mask: jnp.ndarray) -> jnp.ndarray:
 
 
 class Initializer:
-    def __init__(self, config: DictConfig, layout: Layout, menu: MenuList, random_agent_position: bool):
+    def __init__(self, config: DictConfig, layout: Layout, menu: MenuList, *, random_agent_position: bool):
         self.layout = layout
         self.menu = menu
         self.num_agents = len(layout.agent_positions)
@@ -74,7 +75,8 @@ class Initializer:
         if len(self.forward_view_size) < self.num_agents:
             warnings.warn(
                 "insufficient parameters specified.\n"
-                f"forward_view_size({len(self.forward_view_size)}) is not sufficient for num_agents({self.num_agents})"
+                f"forward_view_size({len(self.forward_view_size)}) is not sufficient for num_agents({self.num_agents})",
+                stacklevel=2,
             )
             # 不足分は最後の設定を繰り返し用いる
             self.forward_view_size += [self.forward_view_size[-1]] * (self.num_agents - len(self.forward_view_size))
@@ -88,7 +90,8 @@ class Initializer:
         if len(self.side_view_size) < self.num_agents:
             warnings.warn(
                 "insufficient parameters specified.\n"
-                f"side_view_size({len(self.side_view_size)}) is not sufficient for num_agents({self.num_agents})"
+                f"side_view_size({len(self.side_view_size)}) is not sufficient for num_agents({self.num_agents})",
+                stacklevel=2,
             )
             # 不足分は最後の設定を繰り返し用いる
             self.side_view_size += [self.side_view_size[-1]] * (self.num_agents - len(self.side_view_size))
@@ -107,7 +110,8 @@ class Initializer:
         if len(self.capacity) < self.num_agents:
             warnings.warn(
                 "insufficient parameters specified.\n"
-                f"capacity({len(self.capacity)}) is not sufficient for num_agents({self.num_agents})"
+                f"capacity({len(self.capacity)}) is not sufficient for num_agents({self.num_agents})",
+                stacklevel=2,
             )
             # 不足分は最後の設定を繰り返し用いる
             self.capacity += [self.capacity[-1]] * (self.num_agents - len(self.capacity))
@@ -121,7 +125,7 @@ class Initializer:
         self.reservation = config.schedule.reservation
         self.random_agent_position = random_agent_position
 
-    def initialize(self, key: jax.Array):
+    def initialize(self, key: Key[Array, ""]):
         static_objects = self.layout.static_objects
         grid = jnp.stack(
             [
@@ -194,12 +198,12 @@ class Initializer:
             prev_actions=jnp.full(num_agents, Actions.STAY),
         )
 
-    def _randomize_agent_positions(self, agents: Agent, key: jax.Array):
+    def _randomize_agent_positions(self, agents: Agent, key: Key[Array, ""]):
         # 空の場所からエージェントの初期位置を選択
         # （元々の位置から移動可能な範囲内でランダムにする）
         enclosed_spaces = _compute_enclosed_spaces(self.layout.static_objects == StaticObject.EMPTY)
 
-        def _select_agent_position(taken_mask: jnp.ndarray, x):
+        def _select_agent_position(taken_mask: Bool[Array, "H W"], x: tuple[Int[Array, "2"], Key[Array, ""]]):
             pos, key = x
 
             allowed_positions = (enclosed_spaces == enclosed_spaces[*pos]) & ~taken_mask

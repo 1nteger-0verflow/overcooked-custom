@@ -1,13 +1,15 @@
 import math
+from typing import ClassVar
 
 import imageio
 import jax
 import jax.numpy as jnp
 
 import visualize.grid_rendering_v2 as rendering
-from environment.customer import CustomerStatus
+from environment.customer import CustomerLine, CustomerStatus
 from environment.dynamic_object import DynamicObject
 from environment.state import Channel
+from environment.state import State as EnvState
 from environment.static_object import StaticObject
 from visualize.window import Window
 
@@ -55,7 +57,7 @@ AGENT_COLORS = jnp.array(
 class OvercookedCustomVisualizer:
     """Manages a window and renders contents of EnvState instances to it."""
 
-    tile_cache = {}
+    tile_cache: ClassVar[dict] = {}
 
     def __init__(self, tile_size: int = TILE_PIXELS, subdivs: int = 3):
         self.window = Window("Overcooked V2-customized")
@@ -63,10 +65,10 @@ class OvercookedCustomVisualizer:
         self.tile_size = tile_size
         self.subdivs = subdivs
 
-    def show(self, block: bool = False):
+    def show(self, *, block: bool = False):
         self.window.show(block=block)
 
-    def render(self, state, title: str = "", caption: str = ""):
+    def render(self, state: EnvState, title: str = "", caption: str = ""):
         """Method for rendering the state in a window. Esp. useful for interactive mode."""
         img = self._render_state(state)
 
@@ -74,7 +76,7 @@ class OvercookedCustomVisualizer:
         self.window.set_caption(caption)
         self.window.show_img(img)
 
-    def render_multi(self, states, rows: int, cols: int, title: str = "", caption: str = ""):
+    def render_multi(self, states: EnvState, rows: int, cols: int, title: str = "", caption: str = ""):
         imgs = jax.vmap(self._render_state)(states)  # (NUM_ENVS, height, width, color)
         # imgsのaxis=0のlength(=並列環境数)がrows*colsに満たない場合は0で埋める
         padding = jnp.zeros((rows * cols - imgs.shape[0], *imgs.shape[1:]), dtype=jnp.uint8)
@@ -90,7 +92,7 @@ class OvercookedCustomVisualizer:
     def close(self):
         self.window.close()
 
-    def animate(self, state_seq, filename="animation.gif"):
+    def animate(self, state_seq: list[EnvState], filename: str = "animation.gif"):
         """Animate a gif give a state sequence and save if to file."""
         # frame_seq = jax.vmap(self._render_state)(state_seq)
         frame_seq = [self._render_state(state) for state in state_seq]
@@ -100,11 +102,11 @@ class OvercookedCustomVisualizer:
 
         imageio.mimsave(filename, frame_seq, "GIF", duration=0.5)
 
-    def render_sequence(self, state_seq, agent_view_size=None):
+    def render_sequence(self, state_seq: EnvState, agent_view_size: jax.Array | None = None):
         return jax.vmap(self._render_state, in_axes=(0, None))(state_seq, agent_view_size)
 
     @classmethod
-    def _encode_agent_extras(cls, direction, idx):
+    def _encode_agent_extras(cls, direction: jax.Array, idx: int):
         dir_order = jnp.array([[-1, 0], [+1, 0], [0, +1], [0, -1]])
         dir_idx = jnp.argmax(jnp.all(direction == dir_order, axis=1))
         dir_num = jax.lax.switch(
@@ -120,13 +122,13 @@ class OvercookedCustomVisualizer:
         return dir_num | (idx << 4)
 
     @classmethod
-    def _decode_agent_extras(cls, extras):
+    def _decode_agent_extras(cls, extras: jax.Array):
         direction = extras & 0x3
         idx = extras >> 4
         return direction, idx
 
     @jax.jit(static_argnums=(0,))
-    def _render_state(self, state):
+    def _render_state(self, state: EnvState):
         """Render the state."""
         grid = state.grid
         agents = state.agents
@@ -138,7 +140,7 @@ class OvercookedCustomVisualizer:
         # 表示用の情報をextra_infoに格納しておく
         ###########################################
         # agentの向きを格納
-        def _include_agents(grid, x):
+        def _include_agents(grid: jax.Array, x: tuple):
             agent, idx = x
             pos = agent.pos
             inventory = agent.inventory[0]
@@ -153,7 +155,7 @@ class OvercookedCustomVisualizer:
         grid, _ = jax.lax.scan(_include_agents, grid, (agents, jnp.arange(agents.num_agents)))
 
         # 客の待ち人数を格納
-        def _include_line(grid, line):
+        def _include_line(grid: jax.Array, line: CustomerLine):
             # 入口は1か所
             entrance_pos = line.entrance_pos[0]
             extra_info = (
@@ -167,7 +169,7 @@ class OvercookedCustomVisualizer:
         grid = _include_line(grid, line)
 
         # 客席に出されている料理、食べ終わり、着席状況を格納
-        def _include_customer(grid, x):
+        def _include_customer(grid: jax.Array, x: tuple):
             table_pos, chair_pos, used, status, food = x
             table_extra_info = (
                 jnp.sum(DynamicObject.get_count(food) > 0)
@@ -190,7 +192,7 @@ class OvercookedCustomVisualizer:
         )
 
         # レジの待ち有無を格納
-        def _include_register(grid):
+        def _include_register(grid: jax.Array):
             # レジは1か所の想定
             register_pos = register.register_pos[0]
             extra_info = register.service_time
@@ -201,7 +203,7 @@ class OvercookedCustomVisualizer:
         highlight_mask = jnp.zeros(grid.shape[:2], dtype=bool)
         view_area_tips = state.agents.compute_view_box(grid.shape[0], grid.shape[1])
 
-        def _view_area(area, tips):
+        def _view_area(area: jax.Array, tips: jax.Array):
             xmin, xmax, ymin, ymax = tips
             area_mask = jax.lax.fori_loop(
                 ymin,
@@ -218,25 +220,25 @@ class OvercookedCustomVisualizer:
 
     @staticmethod
     def _render_dynamic_item(
-        object,
-        img,
-        plate_fn=rendering.point_in_circle(0.5, 0.5, 0.3),
-        ingredient_fn=rendering.point_in_circle(0.5, 0.5, 0.15),
-        dish_positions=jnp.array([(0.5, 0.4), (0.4, 0.6), (0.6, 0.6)]),
+        obj: jax.Array,
+        img: jnp.ndarray,
+        plate_fn: object = rendering.point_in_circle(0.5, 0.5, 0.3),
+        ingredient_fn: object = rendering.point_in_circle(0.5, 0.5, 0.15),
+        dish_positions: jnp.ndarray = jnp.array([(0.5, 0.4), (0.4, 0.6), (0.6, 0.6)]),
     ):
-        def _no_op(img, object):
+        def _no_op(img: jnp.ndarray, _obj: jax.Array):
             return img
 
-        def _render_plate(img, object):
+        def _render_plate(img: jnp.ndarray, _obj: jax.Array):
             return rendering.fill_coords(img, plate_fn, COLORS["white"])
 
-        def _render_ingredient(img, object):
-            idx = DynamicObject.get_ingredient_idx(object)
+        def _render_ingredient(img: jnp.ndarray, obj: jax.Array):
+            idx = DynamicObject.get_ingredient_idx(obj)
             return rendering.fill_coords(img, ingredient_fn, INGREDIENT_COLORS[idx])
 
-        def _render_dish(img, object):
+        def _render_dish(img: jnp.ndarray, obj: jax.Array):
             img = rendering.fill_coords(img, plate_fn, COLORS["white"])
-            ingredient_indices = DynamicObject.get_ingredient_idx_list_jit(object)
+            ingredient_indices = DynamicObject.get_ingredient_idx_list_jit(obj)
 
             for idx, ingredient_idx in enumerate(ingredient_indices):
                 color = INGREDIENT_COLORS[ingredient_idx]
@@ -248,7 +250,7 @@ class OvercookedCustomVisualizer:
 
             return img
 
-        def _render_used_plate(img, object):
+        def _render_used_plate(img: jnp.ndarray, _obj: jax.Array):
             img = rendering.fill_coords(img, plate_fn, COLORS["white"])
             drop_fn1 = rendering.point_in_circle(0.6, 0.6, 0.15)
             drop_fn2 = rendering.point_in_circle(0.5, 0.3, 0.05)
@@ -257,15 +259,15 @@ class OvercookedCustomVisualizer:
             img = rendering.fill_coords(img, drop_fn2, COLORS["brown"])
             return rendering.fill_coords(img, drop_fn3, COLORS["brown"])
 
-        def _render_dirt(img, object):
-            n = DynamicObject.get_count(object)
+        def _render_dirt(img: jnp.ndarray, obj: jax.Array):
+            n = DynamicObject.get_count(obj)
             cx, cy = jax.lax.cond(
                 n > 1, lambda: (0.5 + 0.3 * ((n + 1) % 2) / n, 0.2), lambda: (0.5 + 0.3 * ((n + 1) % 2) / n, 0.5)
             )
             rotate = 2 * math.pi / n
             dirt_fn = rendering.point_in_circle(cx, cy, 0.2)
 
-            def _render_dirty_multi(i, img):
+            def _render_dirty_multi(i: int, img: jnp.ndarray):
                 single_dirt_fn = rendering.rotate_fn(dirt_fn, cx=0.5, cy=0.5, theta=rotate * (i + 1))
                 return rendering.fill_coords(img, single_dirt_fn, COLORS["dark_green"])
 
@@ -273,12 +275,12 @@ class OvercookedCustomVisualizer:
 
         branches = jnp.array(
             [
-                object == 0,
-                (object & DynamicObject.PLATE > 0) & (object & DynamicObject.COOKED == 0),
-                DynamicObject.is_ingredient(object),
-                (object & DynamicObject.COOKED > 0) & (object & DynamicObject.USED == 0),
-                (object & DynamicObject.PLATE > 0) & (object & DynamicObject.COOKED > 0),
-                object & DynamicObject.DIRT,
+                obj == 0,
+                (obj & DynamicObject.PLATE > 0) & (obj & DynamicObject.COOKED == 0),
+                DynamicObject.is_ingredient(obj),
+                (obj & DynamicObject.COOKED > 0) & (obj & DynamicObject.USED == 0),
+                (obj & DynamicObject.PLATE > 0) & (obj & DynamicObject.COOKED > 0),
+                obj & DynamicObject.DIRT,
             ]
         )
         branch_idx = jnp.argmax(branches)
@@ -287,17 +289,17 @@ class OvercookedCustomVisualizer:
             branch_idx,
             [_no_op, _render_plate, _render_ingredient, _render_dish, _render_used_plate, _render_dirt],
             img,
-            object,
+            obj,
         )
 
     @staticmethod
-    def _render_line(encoded, img):
+    def _render_line(encoded: jax.Array, img: jnp.ndarray):
         max_line_length = encoded >> 24
         line_length = (encoded >> 16) & (2**8 - 1)
         max_reserved_length = (encoded >> 8) & (2**8 - 1)
         reserved_length = encoded & (2**8 - 1)
 
-        def _render_reserved_line(i, img):
+        def _render_reserved_line(i: int, img: jnp.ndarray):
             pos = ((i + 1) / (max_reserved_length + 1), 0.25)
             r = 1 / (2 * max_reserved_length + 2)
             reserved_fn = rendering.point_in_circle(pos[0], pos[1], r)
@@ -305,7 +307,7 @@ class OvercookedCustomVisualizer:
 
         img = jax.lax.fori_loop(0, reserved_length, _render_reserved_line, img)
 
-        def _render_line(i, img):
+        def _render_line(i: int, img: jnp.ndarray):
             pos = ((i + 1) / (max_line_length + 1), 0.75)
             r = 1 / (2 * max_line_length + 2)
             line_fn = rendering.point_in_circle(pos[0], pos[1], r)
@@ -314,17 +316,17 @@ class OvercookedCustomVisualizer:
         return jax.lax.fori_loop(0, line_length, _render_line, img)
 
     @staticmethod
-    def _render_cell(cell, img):
+    def _render_cell(cell: jax.Array, img: jnp.ndarray):
         static_object = cell[0]
 
-        def _render_empty(cell, img):
+        def _render_empty(cell: jax.Array, img: jnp.ndarray):
             return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
 
-        def _render_wall(cell, img):
+        def _render_wall(cell: jax.Array, img: jnp.ndarray):
             img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["brown"])
             return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
 
-        def _render_agent(cell, img):
+        def _render_agent(cell: jax.Array, img: jnp.ndarray):
             tri_fn = rendering.point_in_triangle((0.12, 0.19), (0.87, 0.50), (0.12, 0.81))
 
             direction, idx = OvercookedCustomVisualizer._decode_agent_extras(cell[Channel.extra])
@@ -346,28 +348,28 @@ class OvercookedCustomVisualizer:
                 dish_positions=jnp.array([(0.65, 0.65), (0.85, 0.65), (0.75, 0.85)]),
             )
 
-        def _render_agent_self(cell, img):
+        def _render_agent_self(_cell: jax.Array, img: jnp.ndarray):
             # Note: This should not ever be called
             return img
 
-        def _render_pot(cell, img):
+        def _render_pot(cell: jax.Array, img: jnp.ndarray):
             return OvercookedCustomVisualizer._render_pot(cell, img)
 
-        def _render_table(cell, img):
+        def _render_table(cell: jax.Array, img: jnp.ndarray):
             return OvercookedCustomVisualizer._render_table(cell, img)
 
-        def _render_chair(cell, img):
+        def _render_chair(cell: jax.Array, img: jnp.ndarray):
             return OvercookedCustomVisualizer._render_chair(cell, img)
 
-        def _render_counter(cell, img):
+        def _render_counter(cell: jax.Array, img: jnp.ndarray):
             img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
             return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
 
-        def _render_sink(cell, img):
+        def _render_sink(cell: jax.Array, img: jnp.ndarray):
             img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["cyan"])
             plate_count = DynamicObject.get_count(cell[1])
 
-            def _render_plate_in_sink(i, img):
+            def _render_plate_in_sink(i: int, img: jnp.ndarray):
                 pos = ((i + 1) / (plate_count + 1), 0.5)
                 r = 1 / (plate_count + 2)
                 plate_fn = rendering.point_in_circle(pos[0], pos[1], r)
@@ -375,24 +377,24 @@ class OvercookedCustomVisualizer:
 
             return jax.lax.fori_loop(0, plate_count, _render_plate_in_sink, img)
 
-        def _render_register(cell, img):
+        def _render_register(cell: jax.Array, img: jnp.ndarray):
             img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.1, 0.9), COLORS["yellow"])
             check_fn = rendering.point_in_circle(0.5, 0.5, 0.3)
             img = jax.lax.cond(cell[2] > 0, lambda: rendering.fill_coords(img, check_fn, COLORS["red"]), lambda: img)
             return img
 
-        def _render_entrance(cell, img):
+        def _render_entrance(cell: jax.Array, img: jnp.ndarray):
             img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["light_blue"])
             return OvercookedCustomVisualizer._render_line(cell[2], img)
 
-        def _render_plate_pile(cell, img):
+        def _render_plate_pile(_cell: jax.Array, img: jnp.ndarray):
             img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
             plate_fns = [rendering.point_in_circle(*coord, 0.2) for coord in [(0.3, 0.3), (0.75, 0.42), (0.4, 0.75)]]
             for plate_fn in plate_fns:
                 img = rendering.fill_coords(img, plate_fn, COLORS["white"])
             return img
 
-        def _render_ingredient_pile(cell, img):
+        def _render_ingredient_pile(cell: jax.Array, img: jnp.ndarray):
             ingredient_idx = cell[0] - StaticObject.INGREDIENT_PILE_BASE
 
             img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
@@ -406,7 +408,7 @@ class OvercookedCustomVisualizer:
 
             return img
 
-        def _render_garbage_can(cell, img):
+        def _render_garbage_can(_cell: jax.Array, img: jnp.ndarray):
             img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["white"])
             img = rendering.fill_coords(img, rendering.point_in_rect(0.4, 0.6, 0.1, 0.2), COLORS["blue"])
             img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.2, 0.25), COLORS["blue"])
@@ -444,7 +446,7 @@ class OvercookedCustomVisualizer:
         return jax.lax.switch(branch_idx, render_fns, cell, img)
 
     @staticmethod
-    def _render_pot(cell, img):
+    def _render_pot(cell: jax.Array, img: jnp.ndarray):
         ingredients = cell[1]
         time_left = cell[2]
 
@@ -488,7 +490,7 @@ class OvercookedCustomVisualizer:
         return jax.lax.select(is_cooking, img_timer, img)
 
     @staticmethod
-    def _render_table(cell, img):
+    def _render_table(cell: jax.Array, img: jnp.ndarray):
         img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
         img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.1, 0.9), COLORS["blue"])
         eating = cell[2] & (2**8 - 1)  # 食事中の皿の枚数
@@ -497,7 +499,7 @@ class OvercookedCustomVisualizer:
         food_color = COLORS["brown"]
         plate_color = COLORS["white"]
 
-        def _render_food_on_table(i, img):
+        def _render_food_on_table(i: int, img: jnp.ndarray):
             pos = ((i + 1) / (capacity + 1), 0.25)
             r = 1 / (2 * capacity + 2)
             plate_fn = rendering.point_in_circle(pos[0], pos[1], r)
@@ -506,7 +508,7 @@ class OvercookedCustomVisualizer:
 
         img = jax.lax.fori_loop(0, eating, _render_food_on_table, img)
 
-        def _render_finished_plate(i, img):
+        def _render_finished_plate(i: int, img: jnp.ndarray):
             pos = ((i + 1) / (capacity + 1), 0.75)
             r = 1 / (2 * capacity + 2)
             plate_fn = rendering.point_in_circle(pos[0], pos[1], r)
@@ -515,7 +517,7 @@ class OvercookedCustomVisualizer:
         return jax.lax.fori_loop(0, finished_plates, _render_finished_plate, img)
 
     @staticmethod
-    def _render_chair(cell, img):
+    def _render_chair(cell: jax.Array, img: jnp.ndarray):
         img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
         img = rendering.fill_coords(img, rendering.point_in_circle(0.5, 0.5, 0.4), COLORS["black"])
         used = cell[2] >> 8
@@ -534,8 +536,8 @@ class OvercookedCustomVisualizer:
         )
         return img
 
-    def _render_tile(self, obj, highlight=False):
-        """Render a tile and cache the result"""
+    def _render_tile(self, obj: jax.Array, highlight: bool = False):
+        """Render a tile and cache the result."""
         # key = (*obj.tolist(), highlight, tile_size)
 
         # if key in OvercookedCustomVisualizer.tile_cache:
@@ -562,7 +564,7 @@ class OvercookedCustomVisualizer:
 
         return img
 
-    def _render_grid(self, grid, highlight_mask):
+    def _render_grid(self, grid: jax.Array, highlight_mask: jax.Array):
         img_grid = jax.vmap(jax.vmap(self._render_tile))(grid, highlight_mask)
 
         grid_rows, grid_cols, tile_height, tile_width, channels = img_grid.shape

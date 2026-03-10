@@ -1,7 +1,7 @@
-import matplotlib
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-matplotlib.rcParams["toolbar"] = "None"
+mpl.rcParams["toolbar"] = "None"
 
 
 class Window:
@@ -56,7 +56,7 @@ class Window:
         # Keyboard handler
         self.fig.canvas.mpl_connect("key_press_event", key_handler)
 
-    def show(self, block: bool = True):
+    def show(self, *, block: bool = True):
         """Show the window, and start an event loop."""
         # If not blocking, trigger interactive mode
         if not block:

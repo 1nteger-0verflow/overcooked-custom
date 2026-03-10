@@ -1,3 +1,5 @@
+import jax.numpy as jnp
+
 from environment.actions import Actions
 from operation.agent_controller import AgentController
 
@@ -12,7 +14,7 @@ ACTION_MAPPING = {
 
 
 class KeyboardInput(AgentController):
-    def __init__(self, agent_id: int, verbose: bool, confirm: bool):
+    def __init__(self, agent_id: int, *, verbose: bool, confirm: bool):
         self.agent_id = agent_id
         self.verbose = verbose
         self.confirm = confirm
@@ -45,7 +47,7 @@ class KeyboardInput(AgentController):
             self.done = True
         return True
 
-    def input_observation(self, obs):
+    def input_observation(self, _obs: jnp.ndarray):
         self.reset()
 
     def get_action(self):

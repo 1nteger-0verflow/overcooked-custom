@@ -34,14 +34,14 @@ class StaticObject(IntEnum):
     INGREDIENT_9 = 22
 
     @staticmethod
-    def is_ingredient_pile(obj):
+    def is_ingredient_pile(obj: int):
         return obj >= StaticObject.INGREDIENT_PILE_BASE
 
     @staticmethod
-    def get_ingredient(obj):
+    def get_ingredient(obj: int):
         idx = obj - StaticObject.INGREDIENT_PILE_BASE
         return DynamicObject.ingredient(idx)
 
     @staticmethod
-    def ingredient_pile(idx):
+    def ingredient_pile(idx: int):
         return StaticObject.INGREDIENT_PILE_BASE + idx

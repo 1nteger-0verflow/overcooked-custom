@@ -1,3 +1,4 @@
+import sys
 import time
 from pathlib import Path
 
@@ -34,7 +35,7 @@ class InteractiveOvercookedCustom:
             self.iter_num = 0
 
         self.key = jax.random.wrap_key_data(jnp.array(config.seed, dtype=jnp.uint32))
-        self.env = OvercookedCustom(config.env, config.random_agent_position)
+        self.env = OvercookedCustom(config.env, random_agent_position=config.random_agent_position)
         self.viz = OvercookedCustomVisualizer()
         self.controller = Controller(self.env, config)
 
@@ -82,7 +83,7 @@ class InteractiveOvercookedCustom:
                 user_input = input("input>")
                 match user_input:
                     case "q":
-                        exit()
+                        sys.exit()
                     case "r":
                         self._reset()
                     case "":
@@ -195,7 +196,7 @@ class InteractiveOvercookedCustom:
                 self.viz.animate(self.state_seq, self.gif_filename)
                 print("done.")
             self.save_log(None)
-            exit()
+            sys.exit()
         else:
             self._redraw()
 

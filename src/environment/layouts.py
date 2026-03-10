@@ -23,9 +23,11 @@ class Layout:
 
     def __post_init__(self):
         if self.num_agents == 0:
-            raise ValueError("At least one agent position must be provided")
+            msg = "At least one agent position must be provided"
+            raise ValueError(msg)
         if self.num_ingredients < 1:
-            raise ValueError("At least one ingredient must be available")
+            msg = "At least one ingredient must be available"
+            raise ValueError(msg)
 
     @property
     def height(self) -> int:
@@ -139,11 +141,14 @@ class Layout:
                 c += 1
 
         if num_tables != num_chairs:
-            raise ValueError(f"Table and Chair must match. ({num_tables}Tables, {num_chairs}Chairs.)")
+            msg = f"Table and Chair must match. ({num_tables}Tables, {num_chairs}Chairs.)"
+            raise ValueError(msg)
         if len(entrance_positions) > 1:
-            raise ValueError("Multiple Entrance is not allowed.")
+            msg = "Multiple Entrance is not allowed."
+            raise ValueError(msg)
         if len(register_positions) < 1:
-            raise ValueError("Register is not included in layout.")
+            msg = "Register is not included in layout."
+            raise ValueError(msg)
         # TODO: add some sanity checks - e.g. agent must exist, surrounded by walls, etc.
 
         return Layout(

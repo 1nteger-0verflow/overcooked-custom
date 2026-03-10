@@ -12,12 +12,12 @@ from ippo_rnn import CNN, ActorCriticRNN, ScannedRNN, Transition, load_config
 # ---------------------------------------------------------------------------
 # Constants (small values for speed)
 # ---------------------------------------------------------------------------
-_GRU = 32   # GRU hidden dim
-_FC = 32    # FC dim
-_N = 2      # batch size (num actors)
-_H, _W, _C = 8, 10, 5   # obs spatial dims (H,W >= 7 for three (3,3) conv layers)
-_A = 6      # action dim
-_T = 3      # sequence length
+_GRU = 32  # GRU hidden dim
+_FC = 32  # FC dim
+_N = 2  # batch size (num actors)
+_H, _W, _C = 8, 10, 5  # obs spatial dims (H,W >= 7 for three (3,3) conv layers)
+_A = 6  # action dim
+_T = 3  # sequence length
 
 
 # ---------------------------------------------------------------------------

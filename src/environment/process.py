@@ -1,5 +1,7 @@
+
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Bool, Int, Key
 from omegaconf import DictConfig
 
 from environment.actions import Actions, ActionType
@@ -14,7 +16,7 @@ from environment.static_object import StaticObject
 from environment.update_env import update_step
 
 
-def tree_select(predicate, a, b):
+def tree_select(predicate: Bool[Array, ""], a, b):
     return jax.tree_util.tree_map(lambda x, y: jax.lax.select(predicate, x, y), a, b)
 
 
@@ -26,7 +28,7 @@ class Processor:
         self.height = layout.height
 
     @jax.jit(static_argnums=(0,))
-    def step(self, key: jax.Array, state: State, actions: jax.Array) -> tuple[State, float, jax.Array, RewardType]:
+    def step(self, key: Key[Array, ""], state: State, actions: Int[Array, "num_agents"]) -> tuple[State, float, jax.Array, RewardType]:
         key, interact_key = jax.random.split(key)
         # Move action:
         prev_agents = state.agents
@@ -42,7 +44,7 @@ class Processor:
 
         return (state, reward, shaped_rewards, reward_type)
 
-    def update_positions(self, state: State, actions: jax.Array) -> State:
+    def update_positions(self, state: State, actions: Int[Array, "num_agents"]) -> State:
         # 1. move agent to new position (if possible on the grid)
         new_agents = self.move_agents(state, actions)
         # 2. resolve collisions
@@ -54,15 +56,15 @@ class Processor:
         # ここまでの処理で更新後のエージェント位置は確定するので状態に反映させる
         return state.replace(agents=new_agents)
 
-    def move_agents(self, state: State, actions: jax.Array) -> Agent:
+    def move_agents(self, state: State, actions: Int[Array, "num_agents"]) -> Agent:
         # 各エージェントを環境内で移動させる(エージェント間の衝突は考えない)
         grid = state.grid
 
-        def _move_wrapper(agent: Agent, action: jax.Array):
+        def _move_wrapper(agent: Agent, action: Int[Array, ""]):
             direction = Actions.action_to_direction(action)
 
-            def _move(agent: Agent, dir: jnp.ndarray):
-                new_pos = agent.move_in_bounds(dir, self.height, self.width)
+            def _move(agent: Agent, direction: Int[Array, "2"]):
+                new_pos = agent.move_in_bounds(direction, self.height, self.width)
 
                 new_pos = tree_select(
                     (grid[*new_pos, Channel.env] == StaticObject.EMPTY)
@@ -71,7 +73,7 @@ class Processor:
                     agent.pos,
                 )
 
-                return agent.replace(pos=new_pos, dir=dir)
+                return agent.replace(pos=new_pos, dir=direction)
 
             return jax.lax.cond(jnp.all(direction == jnp.array([0, 0])), lambda a, _: a, _move, agent, direction)
 
@@ -79,10 +81,10 @@ class Processor:
 
     def resolve_collisions(self, state: State, new_agents: Agent) -> Agent:
         # エージェント同士が衝突しないようにする
-        def _masked_positions(agent_mask: jax.Array):
+        def _masked_positions(agent_mask: Bool[Array, "num_agents"]):
             return jax.vmap(jax.lax.select)(agent_mask, state.agents.pos, new_agents.pos)
 
-        def _get_collisions(agent_mask: jax.Array):
+        def _get_collisions(agent_mask: Bool[Array, "num_agents"]):
             positions = _masked_positions(agent_mask)
 
             # 移動後の各マス上のエージェント数>1なら衝突あり
@@ -105,10 +107,10 @@ class Processor:
 
     def prevent_swapping(self, state: State, new_agents: Agent) -> Agent:
         # エージェントがすり抜けないようにする
-        def _masked_positions(agent_mask: jax.Array):
+        def _masked_positions(agent_mask: Bool[Array, "num_agents"]):
             return jax.vmap(jax.lax.select)(agent_mask, state.agents.pos, new_agents.pos)
 
-        def _compute_swapped_agents(original_positions, new_positions):
+        def _compute_swapped_agents(original_positions: Int[Array, "num_agents 2"], new_positions: Int[Array, "num_agents 2"]):
             original_pos_expanded = jnp.expand_dims(original_positions, axis=0)
             new_pos_expanded = jnp.expand_dims(new_positions, axis=1)
 
@@ -127,13 +129,13 @@ class Processor:
         return new_agents
 
     def execute_interaction(
-        self, state: State, actions: jax.Array, prev_agents: Agent, interact_key: jax.Array
+        self, state: State, actions: Int[Array, "num_agents"], prev_agents: Agent, interact_key: Key[Array, ""]
     ) -> tuple[State, float, jax.Array, RewardType]:
         penalty = self.config.reward.penalty
 
         # Interact action:
-        def _interact_wrapper(carry, x):
-            agent, action, prev_agent, prev_action = x
+        def _interact_wrapper(carry: tuple[State, float], x: tuple[Agent, Int[Array, ""], Agent, Int[Array, ""]]):
+            agent, action, prev_agent, _prev_action = x
             action_type, storage_idx = Actions.action_type(agent.modify_action(action))
 
             def _move(carry: tuple[State, float], agent: Agent):

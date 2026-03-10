@@ -51,12 +51,12 @@ class Actions(IntEnum):
         )
 
     @classmethod
-    def action_to_string(cls, value):
+    def action_to_string(cls, value: int):
         for member in cls:
             if member.value == value and value < cls.PICK_PLACE_BASE:
                 return member.name
         return f"PICK_PLACE_{value - cls.PICK_PLACE_BASE}"
 
     @staticmethod
-    def action_to_direction(action):
+    def action_to_direction(action: int):
         return jnp.array([(0, +1), (+1, 0), (0, -1), (-1, 0), (0, 0)])[action]

@@ -1,4 +1,5 @@
 import functools
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -25,7 +26,7 @@ from visualize.visualizer import OvercookedCustomVisualizer
 class ScannedRNN(nn.Module):
     @functools.partial(nn.scan, variable_broadcast="params", in_axes=0, out_axes=0, split_rngs={"params": False})
     @nn.compact
-    def __call__(self, carry, x):
+    def __call__(self, carry: jax.Array, x: tuple):
         """Applies the module."""
         rnn_state = carry
         ins, resets = x  # x = (embedding, done)のtuple
@@ -50,7 +51,7 @@ class CNN(nn.Module):
     activation: Callable[..., Any] = nn.relu
 
     @nn.compact
-    def __call__(self, x, train: bool = False):
+    def __call__(self, x: jax.Array, _train: bool = False):
         x = nn.Conv(features=128, kernel_size=(1, 1), kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(x)
         x = self.activation(x)
 
@@ -83,7 +84,7 @@ class ActorCriticRNN(nn.Module):
     # https://github.com/google/flax/pull/4783
     # によると、flax.linenでの修正予定はない
     @nn.compact
-    def __call__(self, hidden, x):
+    def __call__(self, hidden: jax.Array, x: tuple):
         obs, dones = x
         embedding = obs
         activation = nn.relu if self.config.ACTIVATION == "relu" else nn.tanh
@@ -130,7 +131,7 @@ class Transition(NamedTuple):
 def make_train(merged_config: DictConfig):
     env_config = merged_config.env
     config = merged_config.train
-    env = OvercookedCustom(env_config, config.RANDOM_AGENT_POS)
+    env = OvercookedCustom(env_config, random_agent_position=config.RANDOM_AGENT_POS)
     with open_dict(config):
         config.NUM_ACTORS = env.num_agents * config.NUM_ENVS
         assert config.NUM_ACTORS % config.MINIBATCH_SIZE == 0, (
@@ -158,7 +159,7 @@ def make_train(merged_config: DictConfig):
         r = config.aspect_row  # 環境を並べる際の列と行の比率
         c = config.aspect_col  # 環境を並べる際の列と行の比率
 
-        def _adjust_row_col(r, c):
+        def _adjust_row_col(r: int, c: int):
             # 縦：横が大体r:cになるような並べ方を探索
             for rows in range(1, config.NUM_ENVS):
                 for cols in range(1, int(rows * c / r) + 1):
@@ -224,8 +225,8 @@ def make_train(merged_config: DictConfig):
     # TODO: gamma, lambdaを引数に追加すれば純粋関数として共通化できる
     # gamma(float): discount factor
     # lambda(float): GAE mixing parameter
-    def _calculate_gae(rollout_buffer, last_val):
-        def _get_advantages(gae_and_next_value, transition):
+    def _calculate_gae(rollout_buffer: Transition, last_val: jax.Array):
+        def _get_advantages(gae_and_next_value: tuple, transition: Transition):
             gae, next_value = gae_and_next_value
             done, value, reward = (transition.done, transition.value, transition.reward)
             delta = reward + config.GAMMA * next_value * (1 - done) - value
@@ -238,7 +239,7 @@ def make_train(merged_config: DictConfig):
         )
         return advantages, advantages + rollout_buffer.value
 
-    def save_checkpoint(train_state, hstate, metric, step: int):
+    def save_checkpoint(train_state: TrainState, _hstate: jax.Array, metric: dict, step: int):
         # CheckpointManager.saveのstep数はintでなければならないのでcallbackで実装(update_stepはjitのint32[]でNG)
         checkpoint_manager.save(
             step,
@@ -257,7 +258,7 @@ def make_train(merged_config: DictConfig):
                 }
             )
 
-    def save_metrics(metrics, seed_idx):
+    def save_metrics(metrics: dict, seed_idx: int):
         save_dir = Path(config.MODEL_DIR) / f"metrics_{seed_idx}"
         save_dir.mkdir(parents=True, exist_ok=True)
         with open(save_dir / "metrics.csv", "w") as f:
@@ -300,7 +301,7 @@ def make_train(merged_config: DictConfig):
         network = ActorCriticRNN(env.num_actions, config=config)
 
         # COLLECT TRAJECTORIES
-        def _env_step(last_runner_state, _):
+        def _env_step(last_runner_state: tuple, _: None):
             # 現在の方策でnetworkが状態から各actorの行動を出力し、その行動で環境を1step進める
             (
                 train_state,  # env_stepでは更新しない(パラメータを参照するのみ)
@@ -371,11 +372,11 @@ def make_train(merged_config: DictConfig):
             rng, _reset_rng = jax.random.split(rng)
             reset_keys = jax.random.split(_reset_rng, config.NUM_ENVS)
 
-            def _maybe_reset(done_i, key_i, obs_i, state_i):
-                def _reset(_):
+            def _maybe_reset(done_i: jax.Array, key_i: jax.Array, obs_i: jax.Array, state_i):
+                def _reset(_: None):
                     return env.reset(key_i)
 
-                def _keep(_):
+                def _keep(_: None):
                     return obs_i, state_i
 
                 return jax.lax.cond(done_i, _reset, _keep, operand=None)
@@ -411,7 +412,14 @@ def make_train(merged_config: DictConfig):
             # jax.debug.print("transition: {}", transition)
             return new_runner_state, transition
 
-        def _loss_fn(params, init_hstate, rollout_buffer, gae, targets, ent_coef):
+        def _loss_fn(
+            params: dict,
+            init_hstate: jax.Array,
+            rollout_buffer: Transition,
+            gae: jax.Array,
+            targets: jax.Array,
+            ent_coef: jax.Array,
+        ):
             # 方策勾配法では方策の更新によって得られるデータが変わっていくため、損失の値そのものには意味がない
             # https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html
 
@@ -456,8 +464,8 @@ def make_train(merged_config: DictConfig):
             return total_loss, (value_loss, loss_actor, entropy, approx_kl, clipfrac)
 
         # UPDATE NETWORK
-        def _update_epoch(epoch_update_state, _):
-            def _update_minibatch(train_state, batch_info):
+        def _update_epoch(epoch_update_state: tuple, _: None):
+            def _update_minibatch(train_state: TrainState, batch_info: tuple):
                 init_hstate, rollout_buffer, advantages, targets = batch_info
                 init_hstate = init_hstate.squeeze(axis=0)
 
@@ -476,10 +484,10 @@ def make_train(merged_config: DictConfig):
                 )
                 is_finite = jnp.isfinite(loss_value) & grads_finite
 
-                def _apply(ts):
+                def _apply(ts: TrainState):
                     return ts.apply_gradients(grads=safe_grads)
 
-                def _skip(ts):
+                def _skip(ts: TrainState):
                     return ts
 
                 # 追加：更新が起きているかの即死チェック用ログ
@@ -522,7 +530,7 @@ def make_train(merged_config: DictConfig):
             epoch_update_state = (train_state, init_hstate.squeeze(), rollout_buffer, advantages, targets, rng)
             return epoch_update_state, total_loss
 
-        def _update_step(runner_state, _):  # jax.lax.scanに渡すため未使用の引数が必要
+        def _update_step(runner_state: tuple, _: None):  # jax.lax.scanに渡すため未使用の引数が必要
             stepwise_initial_hstate = runner_state[5]  # (NUM_ACTORS, GRU_HIDDEN_DIM)
             #################################################
             # 現在の方策に従って行動し、学習データを収集する
@@ -557,14 +565,9 @@ def make_train(merged_config: DictConfig):
             #################################################
             # パラメータの更新
             #################################################
-            update_state = (
-                train_state,
-                stepwise_initial_hstate,  # env_stepに従って隠し状態が更新されるが、学習はそれとは別に行うので回す前の状態を保存していた？？？
-                rollout_buffer,
-                advantages,
-                targets,
-                rng,
-            )
+            # env_stepに従って隠し状態が更新されるが、学習はそれとは別に行うので
+            # 回す前の状態を保存していた
+            update_state = (train_state, stepwise_initial_hstate, rollout_buffer, advantages, targets, rng)
             update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.NUM_UPDATE_EPOCHS)
             train_state = update_state[0]
             metric = rollout_buffer.info
@@ -658,7 +661,7 @@ def load_config(config: DictConfig):
     if layout is None:
         print("select one of stages by stage=(stage_name)")
         print(list(config.layout.keys()))
-        exit()
+        sys.exit()
     with open_dict(config):
         config.train["progress"] = config.progress
         config.train["visualize"] = config.visualize
@@ -670,7 +673,7 @@ def load_config(config: DictConfig):
 
 
 @hydra.main(version_base=None, config_path="../config", config_name="ippo_rnn")
-def main(config):
+def main(config: DictConfig):
     config = load_config(config)
 
     num_seeds = config.train.NUM_SEEDS

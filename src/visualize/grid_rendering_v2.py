@@ -1,8 +1,10 @@
+from collections.abc import Callable
+
 import jax
 import jax.numpy as jnp
 
 
-def downsample(img, factor):
+def downsample(img: jnp.ndarray, factor: int):
     """Downsample an image along both dimensions by some factor."""
     assert img.shape[0] % factor == 0
     assert img.shape[1] % factor == 0
@@ -15,10 +17,10 @@ def downsample(img, factor):
     return img.astype(jnp.uint8)
 
 
-def fill_coords(img, fn, color):
+def fill_coords(img: jnp.ndarray, fn: Callable, color: jnp.ndarray):
     """Fill pixels of an image with coordinates matching a filter function."""
 
-    def _mask_fn(y, x):
+    def _mask_fn(y: int, x: int):
         yf = (y + 0.5) / img.shape[0]
         xf = (x + 0.5) / img.shape[1]
         return fn(xf, yf)
@@ -30,8 +32,8 @@ def fill_coords(img, fn, color):
     return jnp.where(mask[:, :, None], color_img, img)
 
 
-def rotate_fn(fin, cx, cy, theta):
-    def fout(x, y):
+def rotate_fn(fin: Callable, cx: float, cy: float, theta: float):
+    def fout(x: float, y: float):
         x = x - cx
         y = y - cy
 
@@ -43,19 +45,19 @@ def rotate_fn(fin, cx, cy, theta):
     return fout
 
 
-def point_in_line(x0, y0, x1, y1, r):
+def point_in_line(x0: float, y0: float, x1: float, y1: float, r: float):
     p0 = jnp.array([x0, y0])
     p1 = jnp.array([x1, y1])
-    dir = p1 - p0
-    dist = jnp.linalg.norm(dir)
-    dir = dir / dist
+    vec = p1 - p0
+    dist = jnp.linalg.norm(vec)
+    vec = vec / dist
 
     xmin = min(x0, x1) - r
     xmax = max(x0, x1) + r
     ymin = min(y0, y1) - r
     ymax = max(y0, y1) + r
 
-    def fn(x, y):
+    def fn(x: float, y: float):
         # Fast, early escape test
         if x < xmin or x > xmax or y < ymin or y > ymax:
             return False
@@ -64,9 +66,9 @@ def point_in_line(x0, y0, x1, y1, r):
         pq = q - p0
 
         # Closest point on line
-        a = jnp.dot(pq, dir)
+        a = jnp.dot(pq, vec)
         a = jnp.clip(a, 0, dist)
-        p = p0 + a * dir
+        p = p0 + a * vec
 
         dist_to_line = jnp.linalg.norm(q - p)
         return dist_to_line <= r
@@ -74,26 +76,26 @@ def point_in_line(x0, y0, x1, y1, r):
     return fn
 
 
-def point_in_circle(cx, cy, r):
-    def fn(x, y):
+def point_in_circle(cx: float, cy: float, r: float):
+    def fn(x: float, y: float):
         return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r
 
     return fn
 
 
-def point_in_rect(xmin, xmax, ymin, ymax):
-    def fn(x, y):
+def point_in_rect(xmin: float, xmax: float, ymin: float, ymax: float):
+    def fn(x: float, y: float):
         return (x >= xmin) & (x <= xmax) & (y >= ymin) & (y <= ymax)
 
     return fn
 
 
-def point_in_triangle(a, b, c):
+def point_in_triangle(a: tuple, b: tuple, c: tuple):
     a = jnp.array(a)
     b = jnp.array(b)
     c = jnp.array(c)
 
-    def fn(x, y):
+    def fn(x: float, y: float):
         v0 = c - a
         v1 = b - a
         v2 = jnp.array((x, y)) - a
@@ -116,7 +118,7 @@ def point_in_triangle(a, b, c):
     return fn
 
 
-def highlight_img(img, color=(255, 255, 255), alpha=0.30):
+def highlight_img(img: jnp.ndarray, color: tuple = (255, 255, 255), alpha: float = 0.30):
     """Add highlighting to an image."""
     blend_img = img + alpha * (jnp.array(color, dtype=jnp.uint8) - img)
     return jnp.clip(blend_img, 0, 255).astype(jnp.uint8)

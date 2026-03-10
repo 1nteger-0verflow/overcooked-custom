@@ -25,7 +25,7 @@ class TestCreateControllerRouting:
         assert isinstance(ctrl, RandomInput)
 
     def test_unknown_type_raises(self):
-        with pytest.raises(RuntimeError):
+        with pytest.raises(ValueError, match="Unknown operation type"):
             create_controller(_op("nonexistent"), agent_id=0, num_actions=9, verbose=False, confirm=False)
 
     def test_returns_agent_controller_subclass(self):

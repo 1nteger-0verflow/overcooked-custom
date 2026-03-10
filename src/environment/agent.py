@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 from flax.struct import PyTreeNode, dataclass
+from jaxtyping import Array, Int
 
 from environment.actions import Actions
 from environment.dynamic_object import DynamicObject
@@ -9,13 +10,13 @@ from environment.dynamic_object import DynamicObject
 @dataclass
 class Agent(PyTreeNode):
     # Remark: ndarrayの最初の次元の長さをそろえる(=num_agents)。そうでないとvmapなどの並列化が失敗する。
-    pos: jnp.ndarray  # エージェントごとの位置 (y,x)の順
-    dir: jnp.ndarray  # (y, x)
-    capacity: jnp.ndarray  # 各エージェントが持ち運べるものの個数(inventoryの使える列数)
-    inventory: jnp.ndarray  # 縦：AgentID, 横：持てる個数のエージェント間最大値
-    view_sizes: jnp.ndarray  # 視野範囲　[前方, 左右]
+    pos: Int[Array, "... 2"]  # エージェントごとの位置 (y,x)の順
+    dir: Int[Array, "... 2"]  # (y, x)
+    capacity: Int[Array, "..."]  # 各エージェントが持ち運べるものの個数(inventoryの使える列数)
+    inventory: Int[Array, "... max_storage"]  # 縦：AgentID, 横：持てる個数のエージェント間最大値
+    view_sizes: Int[Array, "... 2"]  # 視野範囲　[前方, 左右]
     # 各マスを視野範囲内に最後に見たstep数をエージェントごとに格納
-    grid_observed_step: jnp.ndarray
+    grid_observed_step: Int[Array, "... height width"]
 
     @property
     def num_agents(self):
@@ -26,8 +27,8 @@ class Agent(PyTreeNode):
         return self.pos + self.dir
 
     # エージェント1体ずつ処理されるためposは1-dimになる
-    def move_in_bounds(self, dir: jnp.ndarray, height: int, width: int):
-        new_pos = self.pos + dir
+    def move_in_bounds(self, direction: Int[Array, "2"], height: int, width: int):
+        new_pos = self.pos + direction
         return jnp.array([jnp.clip(new_pos[0], 0, height - 1), jnp.clip(new_pos[1], 0, width - 1)])
 
     def modify_action(self, action: int):
@@ -35,18 +36,19 @@ class Agent(PyTreeNode):
 
     @jax.jit
     def compute_view_box(self, height: int, width: int) -> jax.Array:
-        # レイアウト全体のサイズを受け取って、レイアウト内でエージェントの観測できる範囲をy_min, y_max, x_min, x_maxで求める
-        def _compute(yx: jnp.ndarray, dir: jnp.ndarray, view_size: jnp.ndarray) -> jax.Array:
+        # レイアウト全体のサイズを受け取って、レイアウト内でエージェントの観測できる範囲を
+        # y_min, y_max, x_min, x_maxで求める
+        def _compute(yx: Int[Array, "2"], direction: Int[Array, "2"], view_size: Int[Array, "2"]) -> Int[Array, "4"]:
             fwd_view, side_view = view_size
             # 向きによる視野範囲を計算（レイアウトは考慮しない）
             # x_min = pos.x + coeff1*side_view + coeff2*fwd_view などで計算する
             branch = jnp.prod(
                 jnp.array(
                     [
-                        dir == jnp.array([-1, 0]),
-                        dir == jnp.array([+1, 0]),
-                        dir == jnp.array([0, +1]),
-                        dir == jnp.array([0, -1]),
+                        direction == jnp.array([-1, 0]),
+                        direction == jnp.array([+1, 0]),
+                        direction == jnp.array([0, +1]),
+                        direction == jnp.array([0, -1]),
                     ]
                 ),
                 axis=1,
@@ -74,10 +76,10 @@ class Agent(PyTreeNode):
 
         return jax.vmap(_compute)(self.pos, self.dir, self.view_sizes)
 
-    def update_observed_grid(self, time: jnp.ndarray, height: int, width: int):
+    def update_observed_grid(self, time: Int[Array, ""], height: int, width: int):
         observable_area = self.compute_view_box(height, width)
 
-        def _update_observed_area(observed, x):
+        def _update_observed_area(observed: Int[Array, "num_agents height width"], x: tuple):
             area, idx = x
             xmin, xmax, ymin, ymax = area
             observed = jax.lax.fori_loop(
@@ -96,7 +98,7 @@ class Agent(PyTreeNode):
         return self.replace(grid_observed_step=new_observed)
 
     def __str__(self):
-        def _discribe_agent(idx):
+        def _discribe_agent(idx: int):
             disc = f"agent{idx}  pos:({self.pos[idx]}), dir: ({self.dir[idx]}), 持てる個数:{self.capacity[idx]}\n"
             disc += "持ってるもの："
             for i in range(self.capacity[idx]):

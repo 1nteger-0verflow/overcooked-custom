@@ -1,7 +1,9 @@
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Int
 from omegaconf import DictConfig
 
+from environment.agent import Agent
 from environment.dynamic_object import Digits, DynamicObject
 from environment.layouts import Layout
 from environment.state import Channel, State
@@ -79,11 +81,9 @@ class Observer:
         )
 
         # 依存パラメータ： エージェントの持てる個数, 素材の数
-        obs_shapes = (self.num_agents, self.height, self.width, num_layers)
         # 客席のステータスと客の待ち開始時刻を客席のセルに格納する
         # 客席の情報(客席数×[注文, 料理])
-        # obs_shapes["customer"] = 2 * self.layout.num_customers
-        return obs_shapes
+        return (self.num_agents, self.height, self.width, num_layers)
 
     def _get_obs_layers(self) -> dict[str, dict[int, str]]:
 
@@ -95,7 +95,7 @@ class Observer:
         agent_channels = ["position", "direction_y", "direction_x"]
         observed_channels = ["observed_step", "fresheness"]
         ingredient_channels = [f"ingredient{n}" for n in range(self.layout.num_ingredients)]
-        inventory_channels = ["plate", "cooked", "used"] + ingredient_channels
+        inventory_channels = ["plate", "cooked", "used", *ingredient_channels]
 
         self_obs_layers = {}
         _register_layer(self_obs_layers, agent_channels)
@@ -113,15 +113,15 @@ class Observer:
             )
         layer_infos["other"] = other_obs_layers
 
-        object_channels = ["plate", "cooked", "used", "dirt"] + ingredient_channels + ["count"]
+        object_channels = ["plate", "cooked", "used", "dirt", *ingredient_channels, "count"]
         order_max = self.config.parameter.order_max
-        order_channels = sum([[f"order{n}(0)", f"order{n}(1)", f"order{n}(2)"] for n in range(order_max)], [])
+        order_channels = [item for n in range(order_max) for item in [f"order{n}(0)", f"order{n}(1)", f"order{n}(2)"]]
         used_plate_channels = [f"used_plate{n}" for n in range(order_max)]
         channel_lists = {
             "static": static_channels + ingredient_channels,
             "context": ["current_step", "open", "close", "next_reservation"],
             "line": ["reserved_line_length", "customer_line_length"],
-            "customer": ["status"] + order_channels + used_plate_channels,
+            "customer": ["status", *order_channels, *used_plate_channels],
             "object": object_channels,
             "extra": ["pot_timer"],
         }
@@ -173,12 +173,10 @@ class Observer:
         # 客の待機列の観測(入口のgridに列の長さを設定する)
         entrance_pos = jnp.array(self.layout.entrance_positions).squeeze()
         length_info = jnp.array([state.line.reserved_line_length, state.line.line_length])
-        line_layers = jnp.zeros((self.height, self.width, length_info.size))
-        line_layers = line_layers.at[*entrance_pos].set(length_info)
-        return line_layers
+        return jnp.zeros((self.height, self.width, length_info.size)).at[*entrance_pos].set(length_info)
 
     def observe_customer(self, state: State):
-        def _recipe_to_ingredients(recipe):
+        def _recipe_to_ingredients(recipe: Int[Array, "..."]):
             # 完成品(cookedフラグONの料理)を入力すると素材に分解
             num_ingredients = self.layout.num_ingredients
             # DynamicObjectのビットに合わせる
@@ -188,11 +186,11 @@ class Observer:
             layers = recipe[..., None] >> shift
             return layers & mask
 
-        def _observe_recipe(obj):
+        def _observe_recipe(obj: Int[Array, ""]):
             # 注文1品ずつを食材の組み合わせに分解、注文なしのとき無効(-1)
             return jax.lax.cond(obj > 0, DynamicObject.get_ingredient_idx_list_jit, lambda _: jnp.full((3,), -1), obj)
 
-        def _food_finished(food):
+        def _food_finished(food: Int[Array, ""]):
             # 料理を提供した後は空いた皿の有無だけ見る
             return jax.lax.cond(food == DynamicObject.USED | DynamicObject.PLATE, lambda: 1, lambda: 0)
 
@@ -207,7 +205,7 @@ class Observer:
         customer_features = jnp.concat([status, flatten_recipes, finished_plates], axis=1)
         customer_layers = jnp.zeros((self.height, self.width, customer_features.shape[1]))
 
-        def _set_feature(carry, x):
+        def _set_feature(carry: Int[Array, "H W features"], x: tuple):
             pos, val = x
             return carry.at[*pos].set(val), None
 
@@ -223,7 +221,7 @@ class Observer:
 
         return jnp.stack(extra_layers, axis=-1)
 
-    def observe_obj(self, ingredients):
+    def observe_obj(self, ingredients: Int[Array, "..."]):
         num_ingredients = self.layout.num_ingredients
         # DynamicObjectのビットに合わせる
         shift = jnp.array(
@@ -256,7 +254,7 @@ class Observer:
         ingredients_layers = self.observe_dynamic_objects(state)
         extra_layers = self.observe_pot(state)
 
-        def _agent_layers(agent, storage):
+        def _agent_layers(agent: Agent, storage: int):
             pos = agent.pos
             direction = agent.dir
             inv = agent.inventory
@@ -270,18 +268,22 @@ class Observer:
             # エージェントの持っているものを表すため必要なch数(皿、調理済み, 使用済み 3ch + 素材数ch)
             obj_layers = 3 + self.layout.num_ingredients
 
-            def _observe_inventory(ingredients):
+            def _observe_inventory(ingredients: Int[Array, "..."]):
                 num_ingredients = self.layout.num_ingredients
                 shift = jnp.array(
-                    [Digits.PLATE, Digits.COOKED, Digits.USED]
-                    + [Digits.INGREDIENTS + 2 * i for i in range(num_ingredients)]
+                    [
+                        Digits.PLATE,
+                        Digits.COOKED,
+                        Digits.USED,
+                        *(Digits.INGREDIENTS + 2 * i for i in range(num_ingredients)),
+                    ]
                 )
-                mask = jnp.array([0x1, 0x1, 0x1] + [0x3] * num_ingredients)
+                mask = jnp.array([0x1, 0x1, 0x1, *([0x3] * num_ingredients)])
 
                 layers = ingredients[..., None] >> shift
                 return layers & mask
 
-            def _obs_inventory(i, val):
+            def _obs_inventory(i: int, val: Int[Array, "H W obj_layers max_capacity"]):
                 inv_grid = jnp.zeros_like(ingredients).at[*pos].set(inv[i])
                 return val.at[:, :, i].set(_observe_inventory(inv_grid))
 
@@ -302,7 +304,7 @@ class Observer:
                 axis=-1,
             )
 
-        def _agent_obs(agent_id: jnp.ndarray):
+        def _agent_obs(agent_id: Int[Array, ""]):
             agent_layers = jax.vmap(_agent_layers)(state.agents, jnp.array(self.capacity))
             agent_layer = agent_layers[agent_id]
             all_agent_layers = jnp.sum(agent_layers, axis=0)

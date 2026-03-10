@@ -12,7 +12,7 @@ class Controller:
         for i in range(self.num_agents):
             self.controllers.append(
                 AgentController.create_controller(
-                    controller_config[i], i, env.num_actions, config.verbose, config.confirm
+                    controller_config[i], i, env.num_actions, verbose=config.verbose, confirm=config.confirm
                 )
             )
         self.controller_idx = 0
@@ -30,12 +30,10 @@ class Controller:
                 filled_settings[k] = v + [v[-1]] * (self.num_agents - len(v))
             else:
                 filled_settings[k] = [v] * self.num_agents
-        interfaces = []
-        for operation_type in operation_types:
-            interfaces.append({operation_type: filled_settings[operation_type].pop(0)})
+        interfaces = [{op: filled_settings[op].pop(0)} for op in operation_types]
         return ListConfig(interfaces)
 
-    def input_observation(self, obs):
+    def input_observation(self, obs: jnp.ndarray):
         # stepごとの初期化
         self.controller_idx = 0
         for controller in self.controllers:

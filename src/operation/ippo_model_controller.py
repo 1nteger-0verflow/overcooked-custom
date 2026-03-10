@@ -10,7 +10,7 @@ from operation.agent_controller import AgentController
 
 
 class IPPOModelInput(AgentController):
-    def __init__(self, agent_id: int, model_config: DictConfig, num_actions: int, verbose: bool):
+    def __init__(self, agent_id: int, model_config: DictConfig, num_actions: int, *, verbose: bool):
         self.agent_id = agent_id
         self.num_actions = num_actions
         self.verbose = verbose
@@ -36,7 +36,7 @@ class IPPOModelInput(AgentController):
         print(f"[Agent {agent_id}] IPPO agent model is loaded from {chkpt_dir}/{step}.")
 
     @jax.jit(static_argnums=(0,))
-    def sample_action(self, obs):
+    def sample_action(self, obs: jnp.ndarray):
         obs_batch = obs[jnp.newaxis, :]
         ac_in = (obs_batch[jnp.newaxis, :], jnp.array([[0]]))
         self.hstate, pi, val = self.network.apply(self.params, self.hstate[jnp.newaxis, :], ac_in)
@@ -44,13 +44,13 @@ class IPPOModelInput(AgentController):
         jax.debug.callback(self.print_decision, log_probs, val)
         return jnp.argmax(log_probs)
 
-    def input_observation(self, obs):
+    def input_observation(self, obs: jnp.ndarray):
         self.next_action = self.sample_action(obs[self.agent_id])
 
     def get_action(self):
         return self.next_action
 
-    def print_decision(self, log_probs, val):
+    def print_decision(self, log_probs: jnp.ndarray, val: jnp.ndarray):
         if self.verbose:
             probs = jnp.exp(log_probs)
             jax.debug.print(

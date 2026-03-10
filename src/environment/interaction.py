@@ -1,9 +1,10 @@
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Key
 from omegaconf import DictConfig
 
 from environment.agent import Agent
-from environment.customer import CustomerStatus
+from environment.customer import Customer, CustomerLine, CustomerStatus
 from environment.dynamic_object import DynamicObject
 from environment.layouts import Layout
 from environment.reward import RewardType
@@ -12,7 +13,7 @@ from environment.static_object import StaticObject
 
 
 def process_interact(
-    state: State, agent: Agent, key: jax.Array, config: DictConfig, layout: Layout
+    state: State, agent: Agent, key: Key[Array, ""], config: DictConfig, layout: Layout
 ) -> tuple[State, Agent, float, float, RewardType]:
     """Assume agent took interact actions. Result depends on what agent is facing and what it is holding."""
     # 1体のエージェントの前方のセル1か所に対する処理
@@ -26,15 +27,15 @@ def process_interact(
     shaped = config.reward.shaped_reward
     penalty = config.reward.penalty
 
-    def _no_op(state, agent):
+    def _no_op(state: State, agent: Agent):
         return (state, agent, 0.0, -penalty.ineffective_interaction, RewardType.FAIL_INTERACT)
 
-    def _deal_customer(state, agent):
-        def _invite(customer, line):
+    def _deal_customer(state: State, agent: Agent):
+        def _invite(customer: Customer, line: CustomerLine):
             new_customer, new_line, invite_reward, reward_type = jax.lax.cond(
                 jnp.greater(line.reserved_line_length, 0) | jnp.greater(line.line_length, 0),
                 lambda: (
-                    customer.append(state.time, line.reserved_line_length > 0),
+                    customer.append(state.time, is_reserved=line.reserved_line_length > 0),
                     line.dequeue(),
                     shaped.invite_customer,
                     RewardType.INVITATION,
@@ -43,7 +44,7 @@ def process_interact(
             )
             return new_customer, new_line, invite_reward, reward_type
 
-        def _refuse(customer, line):
+        def _refuse(customer: Customer, line: CustomerLine):
             refuse_reward, reward_type = jax.lax.cond(
                 line.line_length > 0,
                 lambda: (shaped.refuse_customer, RewardType.REFUSE_CUSTOMER),
@@ -61,16 +62,16 @@ def process_interact(
         )
         return (state.replace(customer=new_customer, line=new_line), agent, 0.0, shaped_reward, reward_type)
 
-    def _take_order(state, agent):
+    def _take_order(state: State, agent: Agent):
         customer = state.customer
         # 対象のテーブルIDを取得する
-        tableID = customer.get_tableID(fwd_pos)
+        table_id = customer.get_table_id(fwd_pos)
         new_status, new_time, new_order, order_reward, reward_type = jax.lax.cond(
-            customer.status[tableID] == CustomerStatus.ordering,
+            customer.status[table_id] == CustomerStatus.ordering,
             lambda: (
-                customer.status.at[tableID].set(CustomerStatus.waiting_food),
-                customer.time.at[tableID].set(state.time),
-                customer.order(tableID, state.menu, key),
+                customer.status.at[table_id].set(CustomerStatus.waiting_food),
+                customer.time.at[table_id].set(state.time),
+                customer.order(table_id, state.menu, key),
                 shaped.take_order,
                 RewardType.TAKE_ORDER,
             ),
@@ -86,7 +87,7 @@ def process_interact(
 
         return (state.replace(customer=new_customer), agent, 0.0, order_reward, reward_type)
 
-    def _wash_plate(state, agent):
+    def _wash_plate(state: State, agent: Agent):
         soaked_plate_count = DynamicObject.get_count(interact_object)
         plate_pile_pos = layout.plate_positions[0]
         plate_pile_obj = state.grid[*plate_pile_pos, Channel.obj]
@@ -105,8 +106,8 @@ def process_interact(
         )
         return state.replace(grid=new_grid), agent, 0.0, wash_reward, reward_type
 
-    def _process_payment(state, agent):
-        def _leave(customer):
+    def _process_payment(state: State, agent: Agent):
+        def _leave(customer: Customer):
             # 会計中だった客を退店させる
             idx = jnp.argmax(customer.status == CustomerStatus.checking)
             new_customer = customer.leave(idx)
@@ -128,7 +129,7 @@ def process_interact(
             reward_type,
         )
 
-    def _clean_dirt(state, agent):
+    def _clean_dirt(state: State, agent: Agent):
         new_grid = state.grid.at[*fwd_pos].set(jnp.array([interact_item, DynamicObject.clean_dirt(interact_object), 0]))
         return (state.replace(grid=new_grid), agent, 0.0, shaped.clean_dirt, RewardType.CLEAN_DIRT)
 
@@ -144,7 +145,7 @@ def process_interact(
     # Booleans depending on customer status
     customer_status = jax.lax.cond(
         state.customer.is_table(fwd_pos),
-        lambda: state.customer.status[state.customer.get_tableID(fwd_pos)],
+        lambda: state.customer.status[state.customer.get_table_id(fwd_pos)],
         lambda: CustomerStatus.empty,
     )
     is_customer_ordering = customer_status == CustomerStatus.ordering

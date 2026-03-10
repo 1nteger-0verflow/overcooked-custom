@@ -3,6 +3,7 @@ from enum import IntEnum
 import jax
 import jax.numpy as jnp
 from flax.struct import PyTreeNode, dataclass
+from jaxtyping import Array, Int, Key
 
 from environment.dynamic_object import DynamicObject
 from environment.menus import MenuList
@@ -21,15 +22,15 @@ class CustomerStatus(IntEnum):
 
 @dataclass
 class Customer(PyTreeNode):
-    table_pos: jnp.ndarray
-    chair_pos: jnp.ndarray
-    used: jnp.ndarray  # 0,1   TODO: status!=emptyでわかるので不要では？
-    status: jnp.ndarray  # CustomerStatus
-    time: jnp.ndarray  # 客席数 x 最後に何かした時刻(statusが変わった時刻)
-    ordered_menu: jnp.ndarray  # 注文内容  客席数 x 注文上限数
-    food: jnp.ndarray  # 客席数 x テーブルに置ける上限数
+    table_pos: Int[Array, "num_customers 2"]
+    chair_pos: Int[Array, "num_customers 2"]
+    used: Int[Array, "num_customers"]  # 0,1   TODO: status!=emptyでわかるので不要では？
+    status: Int[Array, "num_customers"]  # CustomerStatus
+    time: Int[Array, "num_customers"]  # 客席数 x 最後に何かした時刻(statusが変わった時刻)
+    ordered_menu: Int[Array, "num_customers order_max"]  # 注文内容  客席数 x 注文上限数
+    food: Int[Array, "num_customers order_max"]  # 客席数 x テーブルに置ける上限数
 
-    def discribe_customer(self, menu: MenuList):
+    def discribe_customer(self, _menu: MenuList):
         status_string = {
             CustomerStatus.empty: "空席",
             CustomerStatus.sitting: "着席",
@@ -41,7 +42,7 @@ class Customer(PyTreeNode):
             CustomerStatus.cleaning: "片付け中",
         }
 
-        def _discribe_order(idx):
+        def _discribe_order(idx: int):
             if self.status[idx] in [CustomerStatus.waiting_food, CustomerStatus.eating_food]:
                 return ", 注文: " + ",".join(
                     [
@@ -52,7 +53,7 @@ class Customer(PyTreeNode):
                 )
             return ""
 
-        def _discribe_food(idx):
+        def _discribe_food(idx: int):
             if (
                 self.status[idx] == CustomerStatus.eating_food
                 or self.status[idx] == CustomerStatus.waiting_check
@@ -62,7 +63,7 @@ class Customer(PyTreeNode):
                 return ", 配膳: " + ", ".join([DynamicObject.decode(food) for food in self.food[idx] if food != 0])
             return ""
 
-        def _discribe_table(idx, table_pos, status, time):
+        def _discribe_table(idx: int, table_pos: Int[Array, "2"], status: int, time: int):
             discription = f"[Table {idx}]({table_pos}):"
             discription += f" status: {status_string.get(CustomerStatus(status), '不明')}, from: {time}"
             discription += _discribe_order(idx)
@@ -93,22 +94,22 @@ class Customer(PyTreeNode):
     def seat_count(self):
         return self.used.shape[0]
 
-    def is_table(self, pos: jnp.ndarray):
+    def is_table(self, pos: Int[Array, "2"]):
         # テーブルに向いているかを判定
         return jnp.any(jnp.all(self.table_pos == pos, axis=1))
 
-    def get_tableID(self, pos: jnp.ndarray):
+    def get_table_id(self, pos: Int[Array, "2"]):
         # テーブルの位置からIDを取得
         return jnp.argmax(jnp.all(self.table_pos == pos, axis=1))
 
-    def append(self, time: jax.Array, is_reserved: bool):
+    def append(self, time: Int[Array, ""], *, is_reserved: bool):
         return self.replace(
             used=self.used.at[self.empty_seat()].set(1),
             status=self.status.at[self.empty_seat()].set(CustomerStatus.sitting),
             time=self.time.at[self.empty_seat()].set(time),
         )
 
-    def order(self, idx: int, menu: MenuList, key: jax.Array):
+    def order(self, idx: int, menu: MenuList, key: Key[Array, ""]):
         # key, *_ = jax.random.split(key, idx)   # 同じstepに複数エージェントが同時に注文を取るケースに対応
         order_max = min(menu.num_menus, self.ordered_menu.shape[1])
         # 注文件数を決める
@@ -118,7 +119,7 @@ class Customer(PyTreeNode):
         order_menus = jnp.sort(order_menus)[::-1]
 
         # 完成品をordered_menuに設定しておく
-        def _complete_food(order):
+        def _complete_food(order: int):
             return jax.lax.cond(order >= 0, menu.order_to_complete_food, lambda _: -1, order)
 
         target_foods = jax.vmap(_complete_food)(order_menus)
@@ -132,7 +133,7 @@ class Customer(PyTreeNode):
             status=self.status.at[table_idx].set(CustomerStatus.eating_food), food=new_food, ordered_menu=new_order
         )
 
-    def leave(self, idx):
+    def leave(self, idx: int):
         # 会計したが皿を下げていないとき片付け中の状態にする
         new_status, new_time, new_used = jax.lax.cond(
             jnp.any(DynamicObject.is_plate(self.food) > 0),
@@ -146,7 +147,7 @@ class Customer(PyTreeNode):
             ordered_menu=self.ordered_menu.at[idx].set(0),
         )
 
-    def cleanup(self, idx):
+    def cleanup(self, idx: int):
         # 残った皿を片付ける
         # jax.debug.print("clean table {}, before cleaning: {}", idx, self.food)
         need_cleaning_idx = jnp.argmax(self.food[idx] != DynamicObject.EMPTY)
@@ -171,13 +172,13 @@ class Customer(PyTreeNode):
 
 @dataclass
 class CustomerLine(PyTreeNode):
-    entrance_pos: jnp.ndarray
+    entrance_pos: Int[Array, "num_entrances 2"]
     # arr = jnp.roll(arr, -1).at[-1].set(0)  1個ずらして終端を0にすることで案内に代える
-    line_length: jnp.ndarray  # 一般客の並んでいる人数
-    queued_time: jnp.ndarray  # 一般客の並び始めた時間
-    reserved_line_length: jnp.ndarray  # 予約客の並んでいる人数
-    reserved_queued_time: jnp.ndarray  # 予約客の並び始めた時間
-    reserve_time: jnp.ndarray  # 予約時間
+    line_length: Int[Array, ""]  # 一般客の並んでいる人数
+    queued_time: Int[Array, "wait_line_max"]  # 一般客の並び始めた時間
+    reserved_line_length: Int[Array, ""]  # 予約客の並んでいる人数
+    reserved_queued_time: Int[Array, "num_reservations"]  # 予約客の並び始めた時間
+    reserve_time: Int[Array, "num_reservations"]  # 予約時間
 
     def __str__(self):
         expr = "-" * 60 + "\n"
@@ -225,9 +226,9 @@ class CustomerLine(PyTreeNode):
 @dataclass
 class RegisterLine(PyTreeNode):
     # 会計待ちの客の管理用
-    register_pos: jnp.ndarray
-    queued_time: jnp.ndarray  # 会計待ちになった時間
-    service_time: jnp.ndarray  # 会計にかかる残り時間(step数)
+    register_pos: Int[Array, "num_registers 2"]
+    queued_time: Int[Array, ""]  # 会計待ちになった時間
+    service_time: Int[Array, ""]  # 会計にかかる残り時間(step数)
 
     def __str__(self):
         expr = ""
