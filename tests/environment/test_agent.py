@@ -8,7 +8,9 @@ import pytest
 from environment.agent import Agent
 
 
-def _make_agent(pos: list, direction: list, capacity: int = 3, height: int = 8, width: int = 10) -> Agent:
+def _make_agent(
+    pos: list[list[int]], direction: list[list[int]], capacity: int = 3, height: int = 8, width: int = 10
+) -> Agent:
     """単一エージェントの Agent PyTree を構築するヘルパー."""
     num_agents = len(pos)
     return Agent(

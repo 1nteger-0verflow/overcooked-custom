@@ -10,7 +10,7 @@ from operation.keyboard_input import KeyboardInput
 from operation.random_input import RandomInput
 
 
-def _op(kind: str, **kwargs):
+def _op(kind: str, **kwargs: str | int):
     # controller_factory は dict の最初のキーをコントローラタイプとして使う
     return OmegaConf.create({kind: kwargs or {}})
 

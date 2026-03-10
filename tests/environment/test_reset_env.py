@@ -5,7 +5,7 @@ import warnings
 import chex
 import jax
 import jax.numpy as jnp
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from environment.actions import Actions
 from environment.customer import CustomerStatus
@@ -113,7 +113,7 @@ class TestInitializerObsShape:
 class TestInitializerInsufficientParams:
     """forward_view_size / side_view_size / capacity がエージェント数より少ない場合の警告と補填."""
 
-    def _make_cfg(self, compact_config, fwd: list, side: list, cap: list) -> OmegaConf:
+    def _make_cfg(self, compact_config: DictConfig, fwd: list[int], side: list[int], cap: list[int]) -> DictConfig:
         cfg = OmegaConf.to_container(compact_config, resolve=True)
         cfg["parameter"]["forward_view_size"] = fwd
         cfg["parameter"]["side_view_size"] = side
