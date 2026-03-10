@@ -1,14 +1,22 @@
 from collections import abc
-from typing import Any
 
 import jax.numpy as jnp
 
+from environment.overcooked import OvercookedCustom
 from operation.agent_controller import AgentController
+
+_OperationConfig = None | abc.Mapping[str, str | int]
 
 
 class Controller:
     def __init__(
-        self, env, ui: abc.Mapping[str, Any], player: str | abc.Sequence[str], *, verbose: bool, confirm: bool
+        self,
+        env: OvercookedCustom,
+        ui: abc.Mapping[str, _OperationConfig],
+        player: str | abc.Sequence[str],
+        *,
+        verbose: bool,
+        confirm: bool,
     ):
         self.num_agents = env.num_agents
         controller_config = self.apply_config(ui, player)
@@ -21,7 +29,9 @@ class Controller:
             )
         self.controller_idx = 0
 
-    def apply_config(self, ui: abc.Mapping[str, Any], player: str | abc.Sequence[str]) -> list[dict[str, Any]]:
+    def apply_config(
+        self, ui: abc.Mapping[str, _OperationConfig], player: str | abc.Sequence[str]
+    ) -> list[dict[str, _OperationConfig]]:
         player_list = [player] if isinstance(player, str) else player
         # レイアウトに含まれるエージェント数に対して操作方法指定が不足する場合は、最後のものを繰り返し適用
         operation_types = player_list + [player_list[-1]] * (self.num_agents - len(player_list))

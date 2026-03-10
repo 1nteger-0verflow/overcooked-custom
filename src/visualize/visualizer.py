@@ -1,4 +1,5 @@
 import math
+from collections import abc
 from typing import ClassVar
 
 import imageio
@@ -222,8 +223,8 @@ class OvercookedCustomVisualizer:
     def _render_dynamic_item(
         obj: jax.Array,
         img: jnp.ndarray,
-        plate_fn: object = rendering.point_in_circle(0.5, 0.5, 0.3),
-        ingredient_fn: object = rendering.point_in_circle(0.5, 0.5, 0.15),
+        plate_fn: abc.Callable[[float, float], bool] = rendering.point_in_circle(0.5, 0.5, 0.3),
+        ingredient_fn: abc.Callable[[float, float], bool] = rendering.point_in_circle(0.5, 0.5, 0.15),
         dish_positions: jnp.ndarray = jnp.array([(0.5, 0.4), (0.4, 0.6), (0.6, 0.6)]),
     ):
         def _no_op(img: jnp.ndarray, _obj: jax.Array):

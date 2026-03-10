@@ -1,9 +1,9 @@
 import dataclasses
 import functools
 import sys
-from collections.abc import Callable
+from collections import abc
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 import absl.logging
 import distrax
@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 from config import AppConfig, NetworkConfig, app_config_from_omegaconf, network_config_from_train
 from environment.overcooked import OvercookedCustom
+from environment.state import State as EnvState
 from visualize.visualizer import OvercookedCustomVisualizer
 
 
@@ -50,7 +51,7 @@ class ScannedRNN(nn.Module):
 class CNN(nn.Module):
     # observationからRNNの隠れ層に変換
     output_size: int = 64
-    activation: Callable[..., Any] = nn.relu
+    activation: abc.Callable[[jax.Array], jax.Array] = nn.relu
 
     @nn.compact
     def __call__(self, x: jax.Array, _train: bool = False):
@@ -284,7 +285,7 @@ def make_train(app_config: AppConfig):
         with open(save_dir / "config.yaml", "w") as f:
             yaml.dump(dataclasses.asdict(train_config), f)
 
-    def visualize_state(states):
+    def visualize_state(states: EnvState):
         if app_config.visualize:
             viz.render_multi(
                 states, viz_rows, viz_cols, title=f"{states.time[0]} / {env.max_steps} step", caption="caption"
@@ -366,7 +367,7 @@ def make_train(app_config: AppConfig):
             rng, _reset_rng = jax.random.split(rng)
             reset_keys = jax.random.split(_reset_rng, train_config.NUM_ENVS)
 
-            def _maybe_reset(done_i: jax.Array, key_i: jax.Array, obs_i: jax.Array, state_i):
+            def _maybe_reset(done_i: jax.Array, key_i: jax.Array, obs_i: jax.Array, state_i: EnvState):
                 def _reset(_: None):
                     return env.reset(key_i)
 

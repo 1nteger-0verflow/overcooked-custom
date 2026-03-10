@@ -1,5 +1,10 @@
+from collections import abc
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
+import numpy.typing as npt
+from matplotlib.backend_bases import CloseEvent, KeyEvent
 
 mpl.rcParams["toolbar"] = "None"
 
@@ -23,7 +28,7 @@ class Window:
         # Flag indicating the window was closed
         self.closed = False
 
-        def close_handler(evt):
+        def close_handler(_evt: CloseEvent) -> None:
             self.closed = True
 
         self.fig.canvas.mpl_connect("close_event", close_handler)
@@ -31,7 +36,7 @@ class Window:
         self.ax.set_xlabel("")
         self.fig.tight_layout(rect=[0, 0.05, 1, 0.95])
 
-    def show_img(self, img):
+    def show_img(self, img: npt.NDArray[np.uint8]):
         """Show an image or update the image being shown."""
         # Show the first image of the environment
         if self.imshow_obj is None:
@@ -51,7 +56,7 @@ class Window:
         """Set/update the caption text below the image."""
         self.ax.set_xlabel(text)
 
-    def reg_key_handler(self, key_handler):
+    def reg_key_handler(self, key_handler: abc.Callable[[KeyEvent], None]):
         """Register a keyboard event handler."""
         # Keyboard handler
         self.fig.canvas.mpl_connect("key_press_event", key_handler)

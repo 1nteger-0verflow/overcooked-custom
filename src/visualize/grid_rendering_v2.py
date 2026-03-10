@@ -118,7 +118,7 @@ def point_in_triangle(a: tuple, b: tuple, c: tuple):
     return fn
 
 
-def highlight_img(img: jnp.ndarray, color: tuple = (255, 255, 255), alpha: float = 0.30):
+def highlight_img(img: jnp.ndarray, color: tuple[int, int, int] = (255, 255, 255), alpha: float = 0.30):
     """Add highlighting to an image."""
     blend_img = img + alpha * (jnp.array(color, dtype=jnp.uint8) - img)
     return jnp.clip(blend_img, 0, 255).astype(jnp.uint8)

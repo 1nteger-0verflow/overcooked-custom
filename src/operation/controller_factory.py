@@ -1,5 +1,4 @@
 from collections import abc
-from typing import Any
 
 from config import IPPOModelConfig, ReplayConfig
 from operation.ippo_model_controller import IPPOModelInput
@@ -7,9 +6,11 @@ from operation.keyboard_input import KeyboardInput
 from operation.random_input import RandomInput
 from operation.replay_log import ReplayLog
 
+_OperationConfig = None | abc.Mapping[str, str | int]
+
 
 def create_controller(
-    operation: abc.Mapping[str, Any], agent_id: int, num_actions: int, *, verbose: bool, confirm: bool
+    operation: abc.Mapping[str, _OperationConfig], agent_id: int, num_actions: int, *, verbose: bool, confirm: bool
 ):
     optype = next(iter(operation.keys()))
 
