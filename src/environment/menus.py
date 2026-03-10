@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 from flax.struct import PyTreeNode, dataclass
 
+from config import MenuItemConfig
 from environment.dynamic_object import DynamicObject
 
 
@@ -27,7 +28,7 @@ class MenuList(PyTreeNode):
         return self.menu[menu_index]
 
     @staticmethod
-    def load(menus: list):
+    def load(menus: list[MenuItemConfig]):
         menu = jnp.array([config.recipe for config in menus], dtype=int)
         duration = jnp.array([config.duration for config in menus], dtype=int)
         volume = jnp.array([config.volume for config in menus], dtype=int)

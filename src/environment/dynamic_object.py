@@ -46,7 +46,7 @@ class DynamicObject(IntEnum):
 
         # １つの食材に2bit充てることにより個数を0～3まで管理しているので、
         # 2bitずつずらして下位2bitをカウントしていく
-        def _count_ingredients(x: tuple):
+        def _count_ingredients(x: tuple[jax.Array, jax.Array]):
             obj, count = x
             return (obj >> 2, count + (obj & 0x3))
 
@@ -96,7 +96,7 @@ class DynamicObject(IntEnum):
 
     @staticmethod
     def get_ingredient_idx_list_jit(obj: Int[Array, "..."]):
-        def _loop_body(carry: tuple):
+        def _loop_body(carry: tuple[jax.Array, jax.Array, jax.Array, jax.Array]):
             obj, pos, idx, res = carry
             count = obj & 0x3
 
@@ -107,7 +107,7 @@ class DynamicObject(IntEnum):
 
             return (obj >> 2, pos + count, idx + 1, res)
 
-        def _loop_cond(carry: tuple):
+        def _loop_cond(carry: tuple[jax.Array, jax.Array, jax.Array, jax.Array]):
             obj, pos, _, _ = carry
             return (obj > 0) & (pos < MAX_INGREDIENTS)
 
@@ -119,12 +119,12 @@ class DynamicObject(IntEnum):
 
     @staticmethod
     def get_ingredient_idx(obj: Int[Array, "..."]):
-        def _body_fun(val: tuple):
+        def _body_fun(val: tuple[jax.Array, jax.Array, jax.Array]):
             obj, idx, res = val
             new_res = jax.lax.select(obj & 0x3 != 0, idx, res)
             return (obj >> 2, idx + 1, new_res)
 
-        def _cond_fun(val: tuple):
+        def _cond_fun(val: tuple[jax.Array, jax.Array, jax.Array]):
             obj, _, res = val
             return (obj > 0) & (res == -1)
 

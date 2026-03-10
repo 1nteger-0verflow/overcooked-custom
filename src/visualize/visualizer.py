@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 
 import visualize.grid_rendering_v2 as rendering
+from environment.agent import Agent
 from environment.customer import CustomerLine, CustomerStatus
 from environment.dynamic_object import DynamicObject
 from environment.state import Channel
@@ -141,7 +142,7 @@ class OvercookedCustomVisualizer:
         # 表示用の情報をextra_infoに格納しておく
         ###########################################
         # agentの向きを格納
-        def _include_agents(grid: jax.Array, x: tuple):
+        def _include_agents(grid: jax.Array, x: tuple[Agent, jax.Array]):
             agent, idx = x
             pos = agent.pos
             inventory = agent.inventory[0]
@@ -170,7 +171,7 @@ class OvercookedCustomVisualizer:
         grid = _include_line(grid, line)
 
         # 客席に出されている料理、食べ終わり、着席状況を格納
-        def _include_customer(grid: jax.Array, x: tuple):
+        def _include_customer(grid: jax.Array, x: tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]):
             table_pos, chair_pos, used, status, food = x
             table_extra_info = (
                 jnp.sum(DynamicObject.get_count(food) > 0)

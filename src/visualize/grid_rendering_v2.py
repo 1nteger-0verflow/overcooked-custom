@@ -90,7 +90,7 @@ def point_in_rect(xmin: float, xmax: float, ymin: float, ymax: float):
     return fn
 
 
-def point_in_triangle(a: tuple, b: tuple, c: tuple):
+def point_in_triangle(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]):
     a = jnp.array(a)
     b = jnp.array(b)
     c = jnp.array(c)

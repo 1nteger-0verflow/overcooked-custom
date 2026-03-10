@@ -29,7 +29,7 @@ from visualize.visualizer import OvercookedCustomVisualizer
 class ScannedRNN(nn.Module):
     @functools.partial(nn.scan, variable_broadcast="params", in_axes=0, out_axes=0, split_rngs={"params": False})
     @nn.compact
-    def __call__(self, carry: jax.Array, x: tuple):
+    def __call__(self, carry: jax.Array, x: tuple[jax.Array, jax.Array]):
         """Applies the module."""
         rnn_state = carry
         ins, resets = x  # x = (embedding, done)のtuple
@@ -87,7 +87,7 @@ class ActorCriticRNN(nn.Module):
     # https://github.com/google/flax/pull/4783
     # によると、flax.linenでの修正予定はない
     @nn.compact
-    def __call__(self, hidden: jax.Array, x: tuple):
+    def __call__(self, hidden: jax.Array, x: tuple[jax.Array, jax.Array]):
         obs, dones = x
         embedding = obs
         activation = nn.relu if self.config.ACTIVATION == "relu" else nn.tanh
@@ -129,6 +129,9 @@ class Transition(NamedTuple):
     reward: jnp.ndarray
     done: jnp.ndarray
     info: jnp.ndarray
+
+
+_RunnerState = tuple[TrainState, EnvState, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]
 
 
 def make_train(app_config: AppConfig):
@@ -225,7 +228,7 @@ def make_train(app_config: AppConfig):
     # gamma(float): discount factor
     # lambda(float): GAE mixing parameter
     def _calculate_gae(rollout_buffer: Transition, last_val: jax.Array):
-        def _get_advantages(gae_and_next_value: tuple, transition: Transition):
+        def _get_advantages(gae_and_next_value: tuple[jax.Array, jax.Array], transition: Transition):
             gae, next_value = gae_and_next_value
             done, value, reward = (transition.done, transition.value, transition.reward)
             delta = reward + train_config.GAMMA * next_value * (1 - done) - value
@@ -238,7 +241,7 @@ def make_train(app_config: AppConfig):
         )
         return advantages, advantages + rollout_buffer.value
 
-    def save_checkpoint(train_state: TrainState, _hstate: jax.Array, metric: dict, step: int):
+    def save_checkpoint(train_state: TrainState, _hstate: jax.Array, metric: dict[str, jax.Array], step: int):
         # CheckpointManager.saveのstep数はintでなければならないのでcallbackで実装(update_stepはjitのint32[]でNG)
         checkpoint_manager.save(
             step,
@@ -257,7 +260,7 @@ def make_train(app_config: AppConfig):
                 }
             )
 
-    def save_metrics(metrics: dict, seed_idx: int):
+    def save_metrics(metrics: dict[str, jax.Array], seed_idx: int):
         save_dir = Path(model_dir) / f"metrics_{seed_idx}"
         save_dir.mkdir(parents=True, exist_ok=True)
         with open(save_dir / "metrics.csv", "w") as f:
@@ -296,7 +299,7 @@ def make_train(app_config: AppConfig):
         network = ActorCriticRNN(env.num_actions, config=network_config_from_train(train_config))
 
         # COLLECT TRAJECTORIES
-        def _env_step(last_runner_state: tuple, _: None):
+        def _env_step(last_runner_state: _RunnerState, _: None):
             # 現在の方策でnetworkが状態から各actorの行動を出力し、その行動で環境を1step進める
             (
                 train_state,  # env_stepでは更新しない(パラメータを参照するのみ)
@@ -408,7 +411,7 @@ def make_train(app_config: AppConfig):
             return new_runner_state, transition
 
         def _loss_fn(
-            params: dict,
+            params: dict[str, jax.Array],
             init_hstate: jax.Array,
             rollout_buffer: Transition,
             gae: jax.Array,
@@ -459,8 +462,12 @@ def make_train(app_config: AppConfig):
             return total_loss, (value_loss, loss_actor, entropy, approx_kl, clipfrac)
 
         # UPDATE NETWORK
-        def _update_epoch(epoch_update_state: tuple, _: None):
-            def _update_minibatch(train_state: TrainState, batch_info: tuple):
+        def _update_epoch(
+            epoch_update_state: tuple[TrainState, jax.Array, Transition, jax.Array, jax.Array, jax.Array], _: None
+        ):
+            def _update_minibatch(
+                train_state: TrainState, batch_info: tuple[jax.Array, Transition, jax.Array, jax.Array]
+            ):
                 init_hstate, rollout_buffer, advantages, targets = batch_info
                 init_hstate = init_hstate.squeeze(axis=0)
 
@@ -523,7 +530,7 @@ def make_train(app_config: AppConfig):
             epoch_update_state = (train_state, init_hstate.squeeze(), rollout_buffer, advantages, targets, rng)
             return epoch_update_state, total_loss
 
-        def _update_step(runner_state: tuple, _: None):  # jax.lax.scanに渡すため未使用の引数が必要
+        def _update_step(runner_state: _RunnerState, _: None):  # jax.lax.scanに渡すため未使用の引数が必要
             stepwise_initial_hstate = runner_state[5]  # (NUM_ACTORS, GRU_HIDDEN_DIM)
             #################################################
             # 現在の方策に従って行動し、学習データを収集する
