@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Int, Key
-from omegaconf import DictConfig
 
+from config import EnvParameterConfig, RewardConfig
 from environment.agent import Agent
 from environment.customer import Customer, CustomerStatus
 from environment.dynamic_object import DynamicObject
@@ -11,7 +11,14 @@ from environment.state import Channel, State
 from environment.static_object import StaticObject
 
 
-def pick_and_place(state: State, agent: Agent, key: Key[Array, ""], storage_idx: Int[Array, ""], config: DictConfig):
+def pick_and_place(
+    state: State,
+    agent: Agent,
+    key: Key[Array, ""],
+    storage_idx: Int[Array, ""],
+    reward: RewardConfig,
+    parameter: EnvParameterConfig,
+):
     """Assume agent took interact actions. Result depends on what agent is facing and what it is holding."""
     # 1体のエージェントの前方のセル1か所に対する処理
     inventory = agent.inventory[storage_idx]
@@ -22,9 +29,9 @@ def pick_and_place(state: State, agent: Agent, key: Key[Array, ""], storage_idx:
     interact_object = interact_cell[Channel.obj]
     interact_extra = interact_cell[Channel.extra]
 
-    shaped = config.reward.shaped_reward
-    penalty = config.reward.penalty
-    sink_capacity = config.parameter.sink_capacity
+    shaped = reward.shaped_reward
+    penalty = reward.penalty
+    sink_capacity = parameter.sink_capacity
 
     def _no_op(state: State, agent: Agent):
         return (state, agent, 0.0, -penalty.ineffective_interaction, RewardType.FAIL_PICK_PLACE)
@@ -34,7 +41,7 @@ def pick_and_place(state: State, agent: Agent, key: Key[Array, ""], storage_idx:
             new_obj = DynamicObject.add_ingredient(interact_object, inventory[storage_idx])
             _is_correct_recipe, cooking_duration = state.menu.get_duration(new_obj)
             # cooking_durationを指定範囲内の倍率でばらつかせる
-            range_min, range_max = config.parameter.cooking_duration_range
+            range_min, range_max = parameter.cooking_duration_range
             duration_coeff = jax.random.uniform(key, (), minval=range_min, maxval=range_max)
             cooking_duration = jnp.floor(cooking_duration * duration_coeff).astype(int)
             new_cell = interact_cell.at[Channel.obj].set(new_obj).at[Channel.extra].set(cooking_duration)
@@ -97,7 +104,7 @@ def pick_and_place(state: State, agent: Agent, key: Key[Array, ""], storage_idx:
         # 経過時間により報酬を割り引く
         delivery_reward = (
             is_correct_dish
-            * config.reward.shaped_reward.deliver_food
+            * shaped.deliver_food
             * jnp.clip((1.0 - (state.time - customer.time[table_id]) / 100.0), min=0.0)
         ) - (1 - is_correct_dish) * penalty.erroneous_delivery
         # TODO: 誤提供はshaped_reward

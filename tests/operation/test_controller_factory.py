@@ -50,17 +50,18 @@ class TestControllerIntegration:
     """Controller (複数エージェント統合) の基本テスト."""
 
     @pytest.fixture
-    def ctrl_config(self):
-        # player: 操作種別リスト, ui: 各種別の設定 DictConfig
-        return OmegaConf.create(
-            {"player": ["random"], "ui": {"random": None, "keyboard": None}, "verbose": False, "confirm": False}
-        )
+    def ui(self):
+        return {"random": None, "keyboard": None}
 
-    def test_operate_returns_actions(self, minimal_env, ctrl_config):
-        ctrl = Controller(minimal_env, ctrl_config)
+    @pytest.fixture
+    def player(self):
+        return ["random"]
+
+    def test_operate_returns_actions(self, minimal_env, ui, player):
+        ctrl = Controller(minimal_env, ui, player, verbose=False, confirm=False)
         actions = ctrl.operate()
         assert len(actions) == minimal_env.num_agents
 
-    def test_is_auto_true_for_all_random(self, minimal_env, ctrl_config):
-        ctrl = Controller(minimal_env, ctrl_config)
+    def test_is_auto_true_for_all_random(self, minimal_env, ui, player):
+        ctrl = Controller(minimal_env, ui, player, verbose=False, confirm=False)
         assert ctrl.is_auto()

@@ -3,8 +3,8 @@ import warnings
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Int, Key
-from omegaconf import DictConfig
 
+from config import EnvParameterConfig, ScheduleConfig
 from environment.actions import Actions
 from environment.agent import Agent
 from environment.customer import Customer, CustomerLine, CustomerStatus, RegisterLine
@@ -60,7 +60,15 @@ def _compute_enclosed_spaces(empty_mask: Bool[Array, "H W"]) -> Int[Array, "H W"
 
 
 class Initializer:
-    def __init__(self, config: DictConfig, layout: Layout, menu: MenuList, *, random_agent_position: bool):
+    def __init__(
+        self,
+        parameter: EnvParameterConfig,
+        schedule: ScheduleConfig,
+        layout: Layout,
+        menu: MenuList,
+        *,
+        random_agent_position: bool,
+    ):
         self.layout = layout
         self.menu = menu
         self.num_agents = len(layout.agent_positions)
@@ -69,7 +77,7 @@ class Initializer:
         # 視野範囲のパラメータ読み込み
         #################################
         # 前方の視野範囲
-        self.forward_view_size = config.parameter.forward_view_size
+        self.forward_view_size = list(parameter.forward_view_size)
         if isinstance(self.forward_view_size, int):
             self.forward_view_size = [self.forward_view_size] * self.num_agents
         if len(self.forward_view_size) < self.num_agents:
@@ -84,7 +92,7 @@ class Initializer:
         self.forward_view_size = self.forward_view_size[: self.num_agents]
 
         # 左右の視野範囲
-        self.side_view_size = config.parameter.side_view_size
+        self.side_view_size = list(parameter.side_view_size)
         if isinstance(self.side_view_size, int):
             self.side_view_size = [self.side_view_size] * self.num_agents
         if len(self.side_view_size) < self.num_agents:
@@ -104,7 +112,7 @@ class Initializer:
         #################################
         # 把持可能数の読み込み
         #################################
-        self.capacity = config.parameter.capacity
+        self.capacity = list(parameter.capacity)
         if isinstance(self.capacity, int):
             self.capacity = [self.capacity] * self.num_agents
         if len(self.capacity) < self.num_agents:
@@ -117,12 +125,11 @@ class Initializer:
             self.capacity += [self.capacity[-1]] * (self.num_agents - len(self.capacity))
         # 多い場合はエージェント数までの設定を使用する
         self.capacity = self.capacity[: self.num_agents]
-        config.parameter.capacity = self.capacity
 
-        self.order_max = config.parameter.order_max
-        self.plate_count = config.parameter.plate_count
-        self.wait_line_max = config.parameter.wait_line_max
-        self.reservation = config.schedule.reservation
+        self.order_max = parameter.order_max
+        self.plate_count = parameter.plate_count
+        self.wait_line_max = parameter.wait_line_max
+        self.reservation = schedule.reservation
         self.random_agent_position = random_agent_position
 
     def initialize(self, key: Key[Array, ""]):

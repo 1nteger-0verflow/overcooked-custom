@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Key
-from omegaconf import DictConfig
 
+from config import RewardConfig
 from environment.agent import Agent
 from environment.customer import Customer, CustomerLine, CustomerStatus
 from environment.dynamic_object import DynamicObject
@@ -13,7 +13,7 @@ from environment.static_object import StaticObject
 
 
 def process_interact(
-    state: State, agent: Agent, key: Key[Array, ""], config: DictConfig, layout: Layout
+    state: State, agent: Agent, key: Key[Array, ""], reward: RewardConfig, layout: Layout
 ) -> tuple[State, Agent, float, float, RewardType]:
     """Assume agent took interact actions. Result depends on what agent is facing and what it is holding."""
     # 1体のエージェントの前方のセル1か所に対する処理
@@ -23,9 +23,9 @@ def process_interact(
     interact_item = interact_cell[Channel.env]
     interact_object = interact_cell[Channel.obj]
 
-    original = config.reward.original_reward
-    shaped = config.reward.shaped_reward
-    penalty = config.reward.penalty
+    original = reward.original_reward
+    shaped = reward.shaped_reward
+    penalty = reward.penalty
 
     def _no_op(state: State, agent: Agent):
         return (state, agent, 0.0, -penalty.ineffective_interaction, RewardType.FAIL_INTERACT)

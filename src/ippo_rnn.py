@@ -1,3 +1,4 @@
+import dataclasses
 import functools
 import sys
 from collections.abc import Callable
@@ -16,9 +17,10 @@ import yaml
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig
 from tqdm import tqdm
 
+from config import AppConfig, NetworkConfig, app_config_from_omegaconf, network_config_from_train
 from environment.overcooked import OvercookedCustom
 from visualize.visualizer import OvercookedCustomVisualizer
 
@@ -78,7 +80,7 @@ class CNN(nn.Module):
 
 class ActorCriticRNN(nn.Module):
     action_dim: int
-    config: DictConfig
+    config: NetworkConfig
 
     # https://stackoverflow.com/questions/79658104/how-to-type-hint-flax-linen-module-applys-output-correctly
     # https://github.com/google/flax/pull/4783
@@ -128,65 +130,60 @@ class Transition(NamedTuple):
     info: jnp.ndarray
 
 
-def make_train(merged_config: DictConfig):
-    env_config = merged_config.env
-    config = merged_config.train
-    env = OvercookedCustom(env_config, random_agent_position=config.RANDOM_AGENT_POS)
-    with open_dict(config):
-        config.NUM_ACTORS = env.num_agents * config.NUM_ENVS
-        assert config.NUM_ACTORS % config.MINIBATCH_SIZE == 0, (
-            f"MINIBATCH_SIZE({config.MINIBATCH_SIZE}) must devide NUM_ACTORS({config.NUM_ACTORS})"
-        )
-        config.NUM_MINIBATCHES = config.NUM_ACTORS // config.MINIBATCH_SIZE
-        # ・保存先は絶対パスで指定しなければならない
-        config.MODEL_DIR = Path(HydraConfig.get().runtime.output_dir).parent.as_posix()
+def make_train(app_config: AppConfig):
+    train_config = app_config.train
+    env = OvercookedCustom(app_config.env, random_agent_position=train_config.RANDOM_AGENT_POS)
+    num_actors = env.num_agents * train_config.NUM_ENVS
+    assert num_actors % train_config.MINIBATCH_SIZE == 0, (
+        f"MINIBATCH_SIZE({train_config.MINIBATCH_SIZE}) must devide NUM_ACTORS({num_actors})"
+    )
+    num_minibatches = num_actors // train_config.MINIBATCH_SIZE
+    # ・保存先は絶対パスで指定しなければならない
+    model_dir = Path(HydraConfig.get().runtime.output_dir).parent.as_posix()
     # 学習のHORIZONステップ目以降はshaped_rewardの重みが0
     rew_shaping_anneal = optax.linear_schedule(
-        init_value=1.0, end_value=0.0, transition_steps=config.REW_SHAPING_HORIZON
+        init_value=1.0, end_value=0.0, transition_steps=train_config.REW_SHAPING_HORIZON
     )
     # チェックポイントの保存用設定
-    Path(config.MODEL_DIR).mkdir(parents=True, exist_ok=True)
+    Path(model_dir).mkdir(parents=True, exist_ok=True)
     # https://github.com/google/flax/discussions/3130
     absl.logging.set_verbosity(absl.logging.WARNING)
     # https://orbax.readthedocs.io/en/latest/guides/checkpoint/api_refactor.html#multiple-item-checkpointing
-    options = ocp.CheckpointManagerOptions(create=True, save_interval_steps=config.CHECKPOINT_INTERVAL_STEP)
-    checkpoint_manager = ocp.CheckpointManager(config.MODEL_DIR, options=options, metadata=config)
+    options = ocp.CheckpointManagerOptions(create=True, save_interval_steps=train_config.CHECKPOINT_INTERVAL_STEP)
+    checkpoint_manager = ocp.CheckpointManager(model_dir, options=options, metadata=dataclasses.asdict(train_config))
     # 進捗表示
-    if config.progress:
-        progress_bar = tqdm(total=config.NUM_TRAINING_STEPS)
+    if app_config.progress:
+        progress_bar = tqdm(total=train_config.NUM_TRAINING_STEPS)
     # 学習中の可視化
-    if config.visualize:
-        r = config.aspect_row  # 環境を並べる際の列と行の比率
-        c = config.aspect_col  # 環境を並べる際の列と行の比率
+    viz_rows: int | None = None
+    viz_cols: int | None = None
+    if app_config.visualize:
 
         def _adjust_row_col(r: int, c: int):
             # 縦：横が大体r:cになるような並べ方を探索
-            for rows in range(1, config.NUM_ENVS):
+            for rows in range(1, train_config.NUM_ENVS):
                 for cols in range(1, int(rows * c / r) + 1):
-                    if rows * cols >= config.NUM_ENVS:
+                    if rows * cols >= train_config.NUM_ENVS:
                         return (rows, cols)
-            return (1, config.NUM_ENVS)
+            return (1, train_config.NUM_ENVS)
 
-        rows, cols = _adjust_row_col(r, c)
-        with open_dict(config):
-            config.viz_rows = rows
-            config.viz_cols = cols
+        viz_rows, viz_cols = _adjust_row_col(app_config.aspect_row, app_config.aspect_col)
         viz = OvercookedCustomVisualizer()
         viz.show()
 
     def initialize_network_params(network: ActorCriticRNN, rng: jax.Array):
         # ネットワークのパラメータ初期化は環境ごとに行う（エージェントの区別なし）
         # shape: (1,NUM_ENV, height, width, channel), (1, NUM_ENVS)
-        init_x = (jnp.zeros((1, config.NUM_ENVS, *env.obs_shape[1:])), jnp.zeros((1, config.NUM_ENVS)))
-        init_hstate = ScannedRNN.initialize_carry(config.NUM_ENVS, config.GRU_HIDDEN_DIM)
+        init_x = (jnp.zeros((1, train_config.NUM_ENVS, *env.obs_shape[1:])), jnp.zeros((1, train_config.NUM_ENVS)))
+        init_hstate = ScannedRNN.initialize_carry(train_config.NUM_ENVS, train_config.GRU_HIDDEN_DIM)
         return network.init(rng, init_hstate, init_x)
 
     def create_learning_rate_fn():
-        base_learning_rate = config.LR
+        base_learning_rate = train_config.LR
 
-        lr_warmup = config.LR_WARMUP
+        lr_warmup = train_config.LR_WARMUP
         # TrainStateのstep総数はapply_gradientsを呼び出す回数
-        total_update_steps = config.NUM_TRAINING_STEPS * config.NUM_UPDATE_EPOCHS * config.NUM_MINIBATCHES
+        total_update_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
         warmup_steps = int(lr_warmup * total_update_steps)
 
         warmup_fn = optax.linear_schedule(init_value=0.0, end_value=base_learning_rate, transition_steps=warmup_steps)
@@ -200,23 +197,24 @@ def make_train(merged_config: DictConfig):
 
     def schedule():
         # 学習率スケジューリング
-        if config.ANNEAL_LR:
-            tx = optax.chain(optax.clip_by_global_norm(config.MAX_GRAD_NORM), optax.adam(lr_schedule, eps=1e-5))
+        if train_config.ANNEAL_LR:
+            tx = optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr_schedule, eps=1e-5))
         else:
-            tx = optax.chain(optax.clip_by_global_norm(config.MAX_GRAD_NORM), optax.adam(config.LR, eps=1e-5))
+            lr = train_config.LR
+            tx = optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr, eps=1e-5))
         return tx
 
     def ent_coeff_schedule():
         # エントロピー係数スケジューリング
-        if config.ANNEAL_ENT:
-            total_opt_steps = config.NUM_TRAINING_STEPS * config.NUM_UPDATE_EPOCHS * config.NUM_MINIBATCHES
+        if train_config.ANNEAL_ENT:
+            total_opt_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
             ent_schedule = optax.linear_schedule(
-                init_value=config.ENT_COEF,
-                end_value=config.ENT_END,
-                transition_steps=int(total_opt_steps * config.ENT_COOLDOWN),
+                init_value=train_config.ENT_COEF,
+                end_value=train_config.ENT_END,
+                transition_steps=int(total_opt_steps * train_config.ENT_COOLDOWN),
             )
         else:
-            ent_schedule = optax.constant_schedule(config.ENT_COEF)
+            ent_schedule = optax.constant_schedule(train_config.ENT_COEF)
         return ent_schedule
 
     ent_schedule = ent_coeff_schedule()
@@ -229,8 +227,8 @@ def make_train(merged_config: DictConfig):
         def _get_advantages(gae_and_next_value: tuple, transition: Transition):
             gae, next_value = gae_and_next_value
             done, value, reward = (transition.done, transition.value, transition.reward)
-            delta = reward + config.GAMMA * next_value * (1 - done) - value
-            gae = delta + config.GAMMA * config.GAE_LAMBDA * (1 - done) * gae
+            delta = reward + train_config.GAMMA * next_value * (1 - done) - value
+            gae = delta + train_config.GAMMA * train_config.GAE_LAMBDA * (1 - done) * gae
             return (gae, value), gae
 
         # unrollはXLAの最適化に関するパラメータで計算結果には関係しない
@@ -249,7 +247,7 @@ def make_train(merged_config: DictConfig):
         )
         checkpoint_manager.wait_until_finished()
         # 進捗を更新
-        if config.progress:
+        if app_config.progress:
             progress_bar.update(1)
             progress_bar.set_postfix(
                 {
@@ -259,7 +257,7 @@ def make_train(merged_config: DictConfig):
             )
 
     def save_metrics(metrics: dict, seed_idx: int):
-        save_dir = Path(config.MODEL_DIR) / f"metrics_{seed_idx}"
+        save_dir = Path(model_dir) / f"metrics_{seed_idx}"
         save_dir.mkdir(parents=True, exist_ok=True)
         with open(save_dir / "metrics.csv", "w") as f:
             for key in [
@@ -284,21 +282,17 @@ def make_train(merged_config: DictConfig):
                 out = f"{key}," + ",".join([str(x) for x in metrics[key]])
                 print(out, file=f)
         with open(save_dir / "config.yaml", "w") as f:
-            yaml.dump(config, f)
+            yaml.dump(dataclasses.asdict(train_config), f)
 
     def visualize_state(states):
-        if config.visualize:
+        if app_config.visualize:
             viz.render_multi(
-                states,
-                config.viz_rows,
-                config.viz_cols,
-                title=f"{states.time[0]} / {env.max_steps} step",
-                caption="caption",
+                states, viz_rows, viz_cols, title=f"{states.time[0]} / {env.max_steps} step", caption="caption"
             )
 
     def train(rng: jax.Array, seed_idx: int):
         # NUM_SEEDS並列に実行
-        network = ActorCriticRNN(env.num_actions, config=config)
+        network = ActorCriticRNN(env.num_actions, config=network_config_from_train(train_config))
 
         # COLLECT TRAJECTORIES
         def _env_step(last_runner_state: tuple, _: None):
@@ -315,7 +309,7 @@ def make_train(merged_config: DictConfig):
 
             # 方策から行動を選択するのはactorごとに行うので、(NUM_ACTORS, ...)のshapeにする
             # obs_batch: (NUM_ACTORS, height, width, info_layers)
-            obs_batch = last_obs.reshape(config.NUM_ACTORS, *env.obs_shape[1:])
+            obs_batch = last_obs.reshape(num_actors, *env.obs_shape[1:])
             # ac_in.shape:
             # (1, NUM_ACTORS, height, width, info_layer),
             # (1, NUM_ACTORS)
@@ -331,7 +325,7 @@ def make_train(merged_config: DictConfig):
             # jax.debug.print("action: {}", action, ordered=True)
             # jax.debug.print("log_prob: {}", log_prob, ordered=True)
             # jax.debug.print("value: {}", value, ordered=True)
-            env_act = action.reshape((config.NUM_ENVS, env.num_agents))
+            env_act = action.reshape((train_config.NUM_ENVS, env.num_agents))
             # env_act:         agent0, agent1, ...
             #          env0  [ [act00, act01, ...],
             #          env1  [ [act10, act11, ...],
@@ -340,7 +334,7 @@ def make_train(merged_config: DictConfig):
             # 乱数の更新
             rng, _rng = jax.random.split(rng)
             # 並行環境にそれぞれ違う乱数を適用し、様々な状態が現れるようにする
-            rng_step = jax.random.split(_rng, config.NUM_ENVS)
+            rng_step = jax.random.split(_rng, train_config.NUM_ENVS)
 
             # STEP ENV
             new_obsv, new_env_state, original_reward, shaped_rewards, _, done = jax.vmap(
@@ -364,13 +358,13 @@ def make_train(merged_config: DictConfig):
             info["anneal_factor"] = jnp.full_like(shaped_rewards, anneal_factor)
             info["combined_reward"] = combined_reward
 
-            info = jax.tree_util.tree_map(lambda x: x.reshape(config.NUM_ACTORS), info)
+            info = jax.tree_util.tree_map(lambda x: x.reshape(num_actors), info)
 
             # ------------------------------------------------------------------------
             # auto-reset(環境がterminateしたとき、次ステップは初期化した状態から開始する)
             # ------------------------------------------------------------------------
             rng, _reset_rng = jax.random.split(rng)
-            reset_keys = jax.random.split(_reset_rng, config.NUM_ENVS)
+            reset_keys = jax.random.split(_reset_rng, train_config.NUM_ENVS)
 
             def _maybe_reset(done_i: jax.Array, key_i: jax.Array, obs_i: jax.Array, state_i):
                 def _reset(_: None):
@@ -404,7 +398,7 @@ def make_train(merged_config: DictConfig):
                 value=value.squeeze(),
                 log_prob=log_prob.squeeze(),
                 # 行動結果
-                reward=combined_reward.reshape(config.NUM_ACTORS),
+                reward=combined_reward.reshape(num_actors),
                 done=done_batch,
                 info=info,
             )
@@ -428,7 +422,7 @@ def make_train(merged_config: DictConfig):
 
             # CALCULATE VALUE LOSS
             value_pred_clipped = rollout_buffer.value + (value - rollout_buffer.value).clip(
-                -config.CLIP_EPS, config.CLIP_EPS
+                -train_config.CLIP_EPS, train_config.CLIP_EPS
             )
             value_losses = jnp.square(value - targets)
             value_losses_clipped = jnp.square(value_pred_clipped - targets)
@@ -444,8 +438,8 @@ def make_train(merged_config: DictConfig):
             approx_kl = jnp.nan_to_num(approx_kl, nan=0.0, posinf=1e9, neginf=-1e9)
 
             # clipfrac（ratio を exp せず log 空間で判定：オーバーフロー回避）
-            log_clip_hi = jnp.log1p(config.CLIP_EPS)  # log(1+eps)
-            log_clip_lo = jnp.log1p(-config.CLIP_EPS)  # log(1-eps)
+            log_clip_hi = jnp.log1p(train_config.CLIP_EPS)  # log(1+eps)
+            log_clip_lo = jnp.log1p(-train_config.CLIP_EPS)  # log(1-eps)
             clipfrac = ((log_ratio_raw > log_clip_hi) | (log_ratio_raw < log_clip_lo)).mean()
             clipfrac = jnp.nan_to_num(clipfrac, nan=0.0, posinf=1.0, neginf=0.0)
             # surrogate に使う ratio は安定のため clipして exp
@@ -455,12 +449,12 @@ def make_train(merged_config: DictConfig):
 
             gae = (gae - gae.mean()) / (gae.std() + 1e-8)
             loss_actor1 = ratio * gae
-            loss_actor2 = jnp.clip(ratio, 1.0 - config.CLIP_EPS, 1.0 + config.CLIP_EPS) * gae
+            loss_actor2 = jnp.clip(ratio, 1.0 - train_config.CLIP_EPS, 1.0 + train_config.CLIP_EPS) * gae
             loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
             loss_actor = loss_actor.mean()
             entropy = pi.entropy().mean()
 
-            total_loss = loss_actor + config.VF_COEF * value_loss - ent_coef * entropy
+            total_loss = loss_actor + train_config.VF_COEF * value_loss - ent_coef * entropy
             return total_loss, (value_loss, loss_actor, entropy, approx_kl, clipfrac)
 
         # UPDATE NETWORK
@@ -509,17 +503,15 @@ def make_train(merged_config: DictConfig):
 
             # エージェント単位の履歴をシャッフルしてminibatchを作成する
             rng, _rng = jax.random.split(rng)
-            permutation = jax.random.permutation(_rng, config.NUM_ACTORS)
+            permutation = jax.random.permutation(_rng, num_actors)
 
-            init_hstate = jnp.reshape(init_hstate, (1, config.NUM_ACTORS, -1))
+            init_hstate = jnp.reshape(init_hstate, (1, num_actors, -1))
             batch = (init_hstate, rollout_buffer, advantages.squeeze(), targets.squeeze())
 
             shuffled_batch = jax.tree_util.tree_map(lambda x: jnp.take(x, permutation, axis=1), batch)
 
             minibatches = jax.tree_util.tree_map(
-                lambda x: jnp.swapaxes(
-                    jnp.reshape(x, [x.shape[0], config.NUM_MINIBATCHES, -1, *list(x.shape[2:])]), 1, 0
-                ),
+                lambda x: jnp.swapaxes(jnp.reshape(x, [x.shape[0], num_minibatches, -1, *list(x.shape[2:])]), 1, 0),
                 shuffled_batch,
             )
             # jax.debug.print("batch: {}", batch)
@@ -538,11 +530,11 @@ def make_train(merged_config: DictConfig):
             # NUM_ENVS個の環境をそれぞれTIMESTEPS分更新する
             # runner_state: TIMESTEPS更新後の状態
             # rollout_buffer: TIMESTEPS分の状態遷移のリスト(rollout buffer) (TIMESTEPS, NUM_ACTORS)
-            runner_state, rollout_buffer = jax.lax.scan(_env_step, runner_state, None, config.TIMESTEPS)
+            runner_state, rollout_buffer = jax.lax.scan(_env_step, runner_state, None, train_config.TIMESTEPS)
             # jax.debug.print("rollout: {}", rollout_buffer)
             train_state, env_state, last_obs, last_done, update_step, hstate, rng = runner_state
             # last_obs_batch: (NUM_ACTORS, height, width, info_layers)
-            last_obs_batch = last_obs.reshape(config.NUM_ACTORS, *env.obs_shape[1:])
+            last_obs_batch = last_obs.reshape(num_actors, *env.obs_shape[1:])
 
             #################################################
             # CALCULATE ADVANTAGE
@@ -568,7 +560,7 @@ def make_train(merged_config: DictConfig):
             # env_stepに従って隠し状態が更新されるが、学習はそれとは別に行うので
             # 回す前の状態を保存していた
             update_state = (train_state, stepwise_initial_hstate, rollout_buffer, advantages, targets, rng)
-            update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, config.NUM_UPDATE_EPOCHS)
+            update_state, loss_info = jax.lax.scan(_update_epoch, update_state, None, train_config.NUM_UPDATE_EPOCHS)
             train_state = update_state[0]
             metric = rollout_buffer.info
             rng = update_state[-1]
@@ -589,7 +581,7 @@ def make_train(merged_config: DictConfig):
             update_step = update_step + 1
             metric = jax.tree_util.tree_map(lambda x: x.mean(), metric)
             metric["update_step"] = update_step
-            metric["env_step"] = update_step * config.TIMESTEPS * config.NUM_ENVS
+            metric["env_step"] = update_step * train_config.TIMESTEPS * train_config.NUM_ENVS
             metric["ent_coef"] = ent_schedule(train_state.step)
             metric["loss_total"] = loss_value_mb.mean()
             metric["loss_value"] = value_loss_mb.mean()
@@ -625,13 +617,13 @@ def make_train(merged_config: DictConfig):
 
             # 環境の初期化
             rng, _rng = jax.random.split(rng)
-            reset_rng = jax.random.split(_rng, config.NUM_ENVS)
+            reset_rng = jax.random.split(_rng, train_config.NUM_ENVS)
             init_obsv, init_env_state = jax.vmap(env.reset, in_axes=(0,))(reset_rng)
 
-            init_done = jnp.zeros((config.NUM_ACTORS), dtype=bool)
+            init_done = jnp.zeros((num_actors), dtype=bool)
             init_step = 0
             # ActorCritic学習の初期隠れ状態  (NUM_ACTORS = NUM_ENVS * num_agents, hidden_dim)
-            init_hstate = ScannedRNN.initialize_carry(config.NUM_ACTORS, config.GRU_HIDDEN_DIM)
+            init_hstate = ScannedRNN.initialize_carry(num_actors, train_config.GRU_HIDDEN_DIM)
 
             rng, init_rng = jax.random.split(rng)
             return (
@@ -649,24 +641,24 @@ def make_train(merged_config: DictConfig):
         ###################################################
         init_runner_state = _initialize_runner_state(rng)
         # TRAIN LOOP
-        final_runner_state, metric = jax.lax.scan(_update_step, init_runner_state, None, config.NUM_TRAINING_STEPS)
+        final_runner_state, metric = jax.lax.scan(
+            _update_step, init_runner_state, None, train_config.NUM_TRAINING_STEPS
+        )
         jax.debug.callback(save_metrics, metric, seed_idx)
         return {"runner_state": final_runner_state, "metrics": metric}
 
     return train
 
 
-def load_config(config: DictConfig):
+def load_config(config: DictConfig) -> DictConfig:
+    from omegaconf import open_dict
+
     layout = config.layout.get(str(config.get("stage", None)), None)
     if layout is None:
         print("select one of stages by stage=(stage_name)")
         print(list(config.layout.keys()))
         sys.exit()
     with open_dict(config):
-        config.train["progress"] = config.progress
-        config.train["visualize"] = config.visualize
-        config.train["aspect_row"] = config.aspect_row
-        config.train["aspect_col"] = config.aspect_col
         config.env["layout"] = layout
         del config.layout
     return config
@@ -675,13 +667,13 @@ def load_config(config: DictConfig):
 @hydra.main(version_base=None, config_path="../config", config_name="ippo_rnn")
 def main(config: DictConfig):
     config = load_config(config)
+    app_config = app_config_from_omegaconf(config)
 
-    num_seeds = config.train.NUM_SEEDS
+    num_seeds = app_config.train.NUM_SEEDS
     with jax.disable_jit(False):
-        rng = jax.random.key(config.train.SEED)
+        rng = jax.random.key(app_config.train.SEED)
         rngs = jax.random.split(rng, num_seeds)
-        train_jit = jax.jit(make_train(config))
-        # train_jit = make_train(config)
+        train_jit = jax.jit(make_train(app_config))
         out = jax.vmap(train_jit)(rngs, jnp.arange(num_seeds))
 
 

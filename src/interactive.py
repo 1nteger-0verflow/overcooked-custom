@@ -1,13 +1,16 @@
 import sys
 import time
+from collections import abc
 from pathlib import Path
+from typing import Any
 
 import hydra
 import jax
 import jax.numpy as jnp
 import numpy as np
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig, OmegaConf, open_dict
 
+from config import InteractiveConfig, interactive_config_from_omegaconf
 from environment.overcooked import OvercookedCustom
 from environment.reward import RewardType
 from operation.controller import Controller
@@ -18,7 +21,7 @@ np.set_printoptions(threshold=100000, linewidth=30000)
 
 
 class InteractiveOvercookedCustom:
-    def __init__(self, config: DictConfig):
+    def __init__(self, config: InteractiveConfig, ui: abc.Mapping[str, Any]):
         self.verbose = config.verbose
         self.visualize = config.visualize
         self.loop = config.loop
@@ -37,7 +40,7 @@ class InteractiveOvercookedCustom:
         self.key = jax.random.wrap_key_data(jnp.array(config.seed, dtype=jnp.uint32))
         self.env = OvercookedCustom(config.env, random_agent_position=config.random_agent_position)
         self.viz = OvercookedCustomVisualizer()
-        self.controller = Controller(self.env, config)
+        self.controller = Controller(self.env, ui, config.player, verbose=config.verbose, confirm=config.confirm)
 
         if self.verbose:
             print(f"取りうるアクションの種類: {self.env.num_actions}")
@@ -216,7 +219,7 @@ class InteractiveOvercookedCustom:
             jnp.savez(log_file, actions=actions, init_key=init_key)
 
 
-def load_config(config: DictConfig):
+def load_config(config: DictConfig) -> DictConfig:
     layout = config.layout.get(str(config.get("stage", None)), None)
     if layout is None:
         print("select one of stages by stage=(stage_name)")
@@ -231,7 +234,9 @@ def load_config(config: DictConfig):
 @hydra.main(config_path="../config", config_name="interactive", version_base=None)
 def main(config: DictConfig):
     config = load_config(config)
-    interactive = InteractiveOvercookedCustom(config)
+    interactive_config = interactive_config_from_omegaconf(config)
+    ui: dict[str, Any] = OmegaConf.to_container(config.ui, resolve=True)  # type: ignore[assignment]
+    interactive = InteractiveOvercookedCustom(interactive_config, ui)
     interactive.run()
 
 

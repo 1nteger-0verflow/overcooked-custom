@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Int
-from omegaconf import DictConfig
 
+from config import EnvParameterConfig, ScheduleConfig
 from environment.agent import Agent
 from environment.dynamic_object import Digits, DynamicObject
 from environment.layouts import Layout
@@ -39,14 +39,15 @@ static_channels = [
 
 
 class Observer:
-    def __init__(self, config: DictConfig, layout: Layout):
-        self.config = config
+    def __init__(self, parameter: EnvParameterConfig, schedule: ScheduleConfig, layout: Layout):
+        self.parameter = parameter
+        self.schedule = schedule
         self.layout = layout
         self.width = layout.width
         self.height = layout.height
         # 初期状態ができる前にエージェント数が必要なのでレイアウトから取得
         self.num_agents = layout.num_agents
-        self.capacity = self.config.parameter.capacity
+        self.capacity = self.parameter.capacity
         self.obs_shape = self._get_obs_shape()
         self.layer_infos = self._get_obs_layers()
 
@@ -64,7 +65,7 @@ class Observer:
         num_static_layers = static_encoding.size + num_ingredients
         num_context_layers = 4  # 現在時刻, 開店・閉店時刻、次の予約時刻
         num_line_layers = 2  # 予約客の待ち列長、一般客の待ち列長
-        order_max = self.config.parameter.order_max
+        order_max = self.parameter.order_max
         # 客席状態(1ch), レシピ(食材3つずつ*order数), 空き皿(order数)
         num_customer_layers = 1 + 4 * order_max
         num_extra_layers = 1
@@ -114,7 +115,7 @@ class Observer:
         layer_infos["other"] = other_obs_layers
 
         object_channels = ["plate", "cooked", "used", "dirt", *ingredient_channels, "count"]
-        order_max = self.config.parameter.order_max
+        order_max = self.parameter.order_max
         order_channels = [item for n in range(order_max) for item in [f"order{n}(0)", f"order{n}(1)", f"order{n}(2)"]]
         used_plate_channels = [f"used_plate{n}" for n in range(order_max)]
         channel_lists = {
@@ -156,8 +157,7 @@ class Observer:
     def observe_context(self, state: State):
         # 現在時刻、開店・閉店時刻、次の予約時刻までの時間（予約客が全員来店後は無効値として-1を設定）
         entrance_pos = jnp.array(self.layout.entrance_positions).squeeze()
-        schedule = self.config.schedule
-        reservations = jnp.array(schedule.reservation)
+        reservations = jnp.array(self.schedule.reservation)
         reservation_remaining = state.time <= jnp.max(reservations)
 
         def next_reservation_time():
@@ -165,7 +165,7 @@ class Observer:
             return jnp.min(time_to_arrival, initial=1000, where=time_to_arrival >= 0).astype(int)
 
         next_reservation_time = jax.lax.cond(reservation_remaining, next_reservation_time, lambda: -1)
-        context = jnp.array([state.time, schedule.opening_time, schedule.closing_time, next_reservation_time])
+        context = jnp.array([state.time, self.schedule.opening_time, self.schedule.closing_time, next_reservation_time])
         context_layers = jnp.zeros((self.height, self.width, context.size))
         return context_layers.at[*entrance_pos].set(context)
 
@@ -330,7 +330,7 @@ class Observer:
             mask = jnp.stack([view_area] * raw_obs.shape[-1], axis=-1)
             # 視野範囲内に観測情報を制限
             return jax.lax.cond(
-                self.config.parameter.restrict_observation, lambda: jnp.where(mask, raw_obs, -1), lambda: raw_obs
+                self.parameter.restrict_observation, lambda: jnp.where(mask, raw_obs, -1), lambda: raw_obs
             )
 
         def _obs_all():

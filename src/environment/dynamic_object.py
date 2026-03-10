@@ -54,7 +54,9 @@ class DynamicObject(IntEnum):
         return count
 
     @staticmethod
-    def add_ingredient(obj: Int[Array, "..."], add: Int[Array, "..."]):  # obj: potの中身、add: エージェントが入れた素材(1つ)
+    def add_ingredient(
+        obj: Int[Array, "..."], add: Int[Array, "..."]
+    ):  # obj: potの中身、add: エージェントが入れた素材(1つ)
         idx = DynamicObject.get_ingredient_idx(add)
         return obj + (DynamicObject.BASE_INGREDIENT << 2 * idx)
 
@@ -81,7 +83,9 @@ class DynamicObject(IntEnum):
         )
 
     @staticmethod
-    def place(stack: Int[Array, "..."], obj: Int[Array, "..."]):  # stack: 既に置いてあるもの、 obj: エージェントが置こうとしているもの
+    def place(
+        stack: Int[Array, "..."], obj: Int[Array, "..."]
+    ):  # stack: 既に置いてあるもの、 obj: エージェントが置こうとしているもの
         return jax.lax.cond(
             ((stack >> COUNTS_BIT_WIDTH) - (obj >> COUNTS_BIT_WIDTH) == 0) | (stack == DynamicObject.EMPTY),
             # 個数だけが違う場合(同種のオブジェクト)は、複数個置くことが可能

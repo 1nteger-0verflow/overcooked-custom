@@ -1,26 +1,26 @@
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float, Int, Key
-from omegaconf import DictConfig
 
+from config import EnvParameterConfig, ScheduleConfig
 from environment.customer import Customer, CustomerStatus, RegisterLine
 from environment.dynamic_object import DynamicObject
 from environment.state import Channel, State
 from environment.static_object import StaticObject
 
 
-def update_step(state: State, config: DictConfig, key: Key[Array, ""]) -> State:
+def update_step(state: State, parameter: EnvParameterConfig, schedule: ScheduleConfig, key: Key[Array, ""]) -> State:
     # 時間経過による環境の更新
     grid_key, line_key, customer_key, cook_key, check_key = jax.random.split(key, 5)
-    state = disturb_env(state, config, grid_key)
-    state = arrive_customer(state, config, line_key)
+    state = disturb_env(state, parameter, grid_key)
+    state = arrive_customer(state, schedule, line_key)
     state = call_order(state, customer_key)
-    state = progress_cooking(state, config, cook_key)
+    state = progress_cooking(state, parameter, cook_key)
     state = progress_eating(state)
-    return get_the_check(state, config, check_key)
+    return get_the_check(state, parameter, check_key)
 
 
-def disturb_env(state: State, config: DictConfig, key: Key[Array, ""]) -> State:
+def disturb_env(state: State, parameter: EnvParameterConfig, key: Key[Array, ""]) -> State:
     grid = state.grid
     # 床に汚れがランダムに出現
     # 対象のマスを１つ選択し、次に汚れを発生させるかどうかを判定する
@@ -28,8 +28,8 @@ def disturb_env(state: State, config: DictConfig, key: Key[Array, ""]) -> State:
     cell_idx = jax.random.choice(cell_select_key, grid.shape[0] * grid.shape[1])
     cell = jnp.unravel_index(cell_idx, grid.shape[:2])
     target_cell = grid[cell]
-    dirt_appear_rate = config.parameter.dirt_appear_rate
-    dirtiness_max = config.parameter.dirtiness_max
+    dirt_appear_rate = parameter.dirt_appear_rate
+    dirtiness_max = parameter.dirtiness_max
     # TODO: state.agents.agent_posとtarget_cellが同じ場合は汚れなし
     # on_agent = jnp.any(jnp.all(cell==agent_pos))  # Positionを１つのjnp.ndarrayにする
 
@@ -50,10 +50,10 @@ def disturb_env(state: State, config: DictConfig, key: Key[Array, ""]) -> State:
     return state.replace(grid=new_grid)
 
 
-def arrive_customer(state: State, config: DictConfig, key: Key[Array, ""]) -> State:
+def arrive_customer(state: State, schedule: ScheduleConfig, key: Key[Array, ""]) -> State:
     line = state.line
     current_step = state.time
-    congestion_rates = config.schedule.congestion_rates
+    congestion_rates = schedule.congestion_rates
 
     def _generate_congestion_rate(time: Int[Array, ""]):
         # [step数、 出現頻度(%)] を参照し、現在の時刻での出現頻度(0~1)を求める
@@ -107,7 +107,7 @@ def call_order(state: State, key: Key[Array, ""]) -> State:
     return state.replace(customer=new_customer)
 
 
-def progress_cooking(state: State, config: DictConfig, key: Key[Array, ""]) -> State:
+def progress_cooking(state: State, parameter: EnvParameterConfig, key: Key[Array, ""]) -> State:
     # Update extra info:
     def _timestep_wrapper(cell: Int[Array, "3"]):
         def _cook(cell: Int[Array, "3"]):
@@ -116,7 +116,7 @@ def progress_cooking(state: State, config: DictConfig, key: Key[Array, ""]) -> S
             finished_cooking = is_cooking * (new_extra == 0)
             _correct, volume = state.menu.get_volume(cell[Channel.obj])
             # volumeを指定範囲内の倍率でばらつかせる
-            range_min, range_max = config.parameter.volume_range
+            range_min, range_max = parameter.volume_range
             volume_coeff = jax.random.uniform(key, (), minval=range_min, maxval=range_max)
             volume = jnp.floor(volume * volume_coeff).astype(int)
             new_ingredients = jax.lax.cond(
@@ -179,14 +179,14 @@ def progress_eating(state: State) -> State:
     return state.replace(customer=new_customer)
 
 
-def get_the_check(state: State, config: DictConfig, key: Key[Array, ""]) -> State:
+def get_the_check(state: State, parameter: EnvParameterConfig, key: Key[Array, ""]) -> State:
     def _start_checking(customer: Customer, register: RegisterLine):
         # 会計待ちになってからの時間が最も長い客席のindex
         dequeue_idx = jnp.argmax((customer.status == CustomerStatus.waiting_check) * (state.time + 1 - customer.time))
         new_status = customer.status.at[dequeue_idx].set(CustomerStatus.checking)
         new_time = customer.time.at[dequeue_idx].set(state.time)
         # 会計にかかるステップ数をランダムにする
-        duration_max = config.parameter.check_time_max
+        duration_max = parameter.check_time_max
         duration = jax.random.randint(key, (), minval=1, maxval=duration_max)
         new_customer = customer.replace(status=new_status, time=new_time)
         new_register = register.replace(queued_time=state.time, service_time=duration)

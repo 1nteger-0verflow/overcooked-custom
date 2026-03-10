@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import pytest
 from omegaconf import OmegaConf
 
+from config import NetworkConfig
 from ippo_rnn import CNN, ActorCriticRNN, ScannedRNN, Transition, load_config
 
 # ---------------------------------------------------------------------------
@@ -25,7 +26,7 @@ _T = 3  # sequence length
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="module")
 def model_config():
-    return OmegaConf.create({"ACTIVATION": "relu", "GRU_HIDDEN_DIM": _GRU, "FC_DIM_SIZE": _FC})
+    return NetworkConfig(ACTIVATION="relu", GRU_HIDDEN_DIM=_GRU, FC_DIM_SIZE=_FC)
 
 
 @pytest.fixture(scope="module")
@@ -214,7 +215,7 @@ class TestActorCriticRNN:
         assert grads is not None
 
     def test_tanh_activation(self, rng):
-        cfg = OmegaConf.create({"ACTIVATION": "tanh", "GRU_HIDDEN_DIM": _GRU, "FC_DIM_SIZE": _FC})
+        cfg = NetworkConfig(ACTIVATION="tanh", GRU_HIDDEN_DIM=_GRU, FC_DIM_SIZE=_FC)
         model = ActorCriticRNN(action_dim=_A, config=cfg)
         hidden = ScannedRNN.initialize_carry(_N, _GRU)
         obs = jnp.zeros((1, _N, _H, _W, _C))
@@ -290,21 +291,21 @@ class TestLoadConfig:
         cfg = load_config(self._make_cfg("stage1"))
         assert not hasattr(cfg, "layout")
 
-    def test_progress_copied_to_train(self):
+    def test_progress_preserved_at_top_level(self):
         cfg = load_config(self._make_cfg("stage1"))
-        assert cfg.train.progress is True
+        assert cfg.progress is True
 
-    def test_visualize_copied_to_train(self):
+    def test_visualize_preserved_at_top_level(self):
         cfg = load_config(self._make_cfg("stage1"))
-        assert cfg.train.visualize is False
+        assert cfg.visualize is False
 
-    def test_aspect_row_copied_to_train(self):
+    def test_aspect_row_preserved_at_top_level(self):
         cfg = load_config(self._make_cfg("stage1"))
-        assert cfg.train.aspect_row == 2
+        assert cfg.aspect_row == 2
 
-    def test_aspect_col_copied_to_train(self):
+    def test_aspect_col_preserved_at_top_level(self):
         cfg = load_config(self._make_cfg("stage1"))
-        assert cfg.train.aspect_col == 3
+        assert cfg.aspect_col == 3
 
     def test_different_stage_selects_correct_layout(self):
         cfg = load_config(self._make_cfg("stage2"))

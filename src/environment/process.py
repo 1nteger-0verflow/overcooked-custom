@@ -1,9 +1,8 @@
-
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Int, Key
-from omegaconf import DictConfig
 
+from config import EnvParameterConfig, RewardConfig, ScheduleConfig
 from environment.actions import Actions, ActionType
 from environment.agent import Agent
 from environment.dynamic_object import DynamicObject
@@ -16,19 +15,23 @@ from environment.static_object import StaticObject
 from environment.update_env import update_step
 
 
-def tree_select(predicate: Bool[Array, ""], a, b):
+def tree_select[T](predicate: Bool[Array, ""], a: T, b: T) -> T:
     return jax.tree_util.tree_map(lambda x, y: jax.lax.select(predicate, x, y), a, b)
 
 
 class Processor:
-    def __init__(self, config: DictConfig, layout: Layout):
-        self.config = config
+    def __init__(self, parameter: EnvParameterConfig, reward: RewardConfig, schedule: ScheduleConfig, layout: Layout):
+        self.parameter = parameter
+        self.reward = reward
+        self.schedule = schedule
         self.layout = layout
         self.width = layout.width
         self.height = layout.height
 
     @jax.jit(static_argnums=(0,))
-    def step(self, key: Key[Array, ""], state: State, actions: Int[Array, "num_agents"]) -> tuple[State, float, jax.Array, RewardType]:
+    def step(
+        self, key: Key[Array, ""], state: State, actions: Int[Array, "num_agents"]
+    ) -> tuple[State, float, jax.Array, RewardType]:
         key, interact_key = jax.random.split(key)
         # Move action:
         prev_agents = state.agents
@@ -38,7 +41,7 @@ class Processor:
             state, actions, prev_agents, interact_key
         )
         # 時間経過による変化(客の状態遷移、汚れの発生、調理・食事の進行)
-        state = update_step(state, self.config, key)
+        state = update_step(state, self.parameter, self.schedule, key)
         # 前回実行した行動を記憶
         state = state.replace(prev_actions=actions)
 
@@ -110,7 +113,9 @@ class Processor:
         def _masked_positions(agent_mask: Bool[Array, "num_agents"]):
             return jax.vmap(jax.lax.select)(agent_mask, state.agents.pos, new_agents.pos)
 
-        def _compute_swapped_agents(original_positions: Int[Array, "num_agents 2"], new_positions: Int[Array, "num_agents 2"]):
+        def _compute_swapped_agents(
+            original_positions: Int[Array, "num_agents 2"], new_positions: Int[Array, "num_agents 2"]
+        ):
             original_pos_expanded = jnp.expand_dims(original_positions, axis=0)
             new_pos_expanded = jnp.expand_dims(new_positions, axis=1)
 
@@ -131,7 +136,7 @@ class Processor:
     def execute_interaction(
         self, state: State, actions: Int[Array, "num_agents"], prev_agents: Agent, interact_key: Key[Array, ""]
     ) -> tuple[State, float, jax.Array, RewardType]:
-        penalty = self.config.reward.penalty
+        penalty = self.reward.penalty
 
         # Interact action:
         def _interact_wrapper(carry: tuple[State, float], x: tuple[Agent, Int[Array, ""], Agent, Int[Array, ""]]):
@@ -153,7 +158,7 @@ class Processor:
                 state, reward = carry
 
                 (new_state, new_agent, interact_reward, shaped_reward, reward_type) = process_interact(
-                    state, agent, interact_key, self.config, self.layout
+                    state, agent, interact_key, self.reward, self.layout
                 )
 
                 carry = (new_state, reward + interact_reward)
@@ -163,7 +168,7 @@ class Processor:
                 state, reward = carry
 
                 (new_state, new_agent, interact_reward, shaped_reward, reward_type) = pick_and_place(
-                    state, agent, interact_key, storage_idx, self.config
+                    state, agent, interact_key, storage_idx, self.reward, self.parameter
                 )
 
                 carry = (new_state, reward + interact_reward)

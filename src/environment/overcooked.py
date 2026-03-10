@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 from jax import lax
-from omegaconf import DictConfig
 
+from config import EnvConfig
 from environment.actions import Actions
 from environment.layouts import Layout
 from environment.menus import MenuList
@@ -14,7 +14,7 @@ from environment.state import State
 
 
 class OvercookedCustom:
-    def __init__(self, config: DictConfig, *, random_agent_position: bool = False):
+    def __init__(self, config: EnvConfig, *, random_agent_position: bool = False):
         self.config = config
         self.layout = Layout.from_string(grid=config.layout)
         self.menu = MenuList.load(menus=config.menu)
@@ -23,11 +23,13 @@ class OvercookedCustom:
         self.height = self.layout.height
         self.width = self.layout.width
 
-        self.initializer = Initializer(config, self.layout, self.menu, random_agent_position=random_agent_position)
-        self.processor = Processor(config, self.layout)
-        self.observer = Observer(config, self.layout)
+        self.initializer = Initializer(
+            config.parameter, config.schedule, self.layout, self.menu, random_agent_position=random_agent_position
+        )
+        self.processor = Processor(config.parameter, config.reward, config.schedule, self.layout)
+        self.observer = Observer(config.parameter, config.schedule, self.layout)
 
-        self.action_set = Actions.declare_action_set(config.parameter.capacity)
+        self.action_set = Actions.declare_action_set(self.initializer.capacity)
         self.max_steps = int(config.schedule.terminal_time)
 
     def reset(self, key: jax.Array) -> tuple[jax.Array, State]:
