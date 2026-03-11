@@ -50,6 +50,7 @@ ignore = [
     "B905",    # zip() without an explicit strict= parameter
     "COM812",  # Trailing comma missing
     "F722",    # Syntax error in forward annotation; for jaxtyping
+    "F821",    # Undefined name in forward annotation; for jaxtyping dimension names
     "FIX002",  # Line contains TODO, consider resolving the issue
     "G004",    # Logging statement uses f-string
     "INP001",  # implicit namespace package.
