@@ -20,7 +20,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-from config import AppConfig, NetworkConfig, app_config_from_omegaconf, network_config_from_train
+from config import AppConfig, NetworkConfig, TrainConfig, app_config_from_omegaconf, network_config_from_train
 from environment.overcooked import OvercookedCustom
 from environment.state import State as EnvState
 from visualize.visualizer import OvercookedCustomVisualizer
@@ -134,7 +134,138 @@ class Transition(NamedTuple):
 _RunnerState = tuple[TrainState, EnvState, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]
 
 
-def make_train(app_config: AppConfig):
+def _adjust_row_col(num_envs: int, r: int, c: int) -> tuple[int, int]:
+    # 縦：横が大体r:cになるような並べ方を探索
+    for rows in range(1, num_envs):
+        for cols in range(1, int(rows * c / r) + 1):
+            if rows * cols >= num_envs:
+                return (rows, cols)
+    return (1, num_envs)
+
+
+def _create_lr_schedule(train_config: TrainConfig, num_minibatches: int) -> optax.Schedule:
+    base_lr = train_config.LR
+    # TrainStateのstep総数はapply_gradientsを呼び出す回数
+    total_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
+    warmup_steps = int(train_config.LR_WARMUP * total_steps)
+    warmup_fn = optax.linear_schedule(init_value=0.0, end_value=base_lr, transition_steps=warmup_steps)
+    cosine_fn = optax.cosine_decay_schedule(init_value=base_lr, decay_steps=max(total_steps - warmup_steps, 1))
+    return optax.join_schedules(schedules=[warmup_fn, cosine_fn], boundaries=[warmup_steps])
+
+
+def _create_optimizer(train_config: TrainConfig, lr_schedule: optax.Schedule) -> optax.GradientTransformation:
+    lr = lr_schedule if train_config.ANNEAL_LR else train_config.LR
+    return optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr, eps=1e-5))
+
+
+def _create_ent_schedule(train_config: TrainConfig, num_minibatches: int) -> optax.Schedule:
+    if train_config.ANNEAL_ENT:
+        total_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
+        return optax.linear_schedule(
+            init_value=train_config.ENT_COEF,
+            end_value=train_config.ENT_END,
+            transition_steps=int(total_steps * train_config.ENT_COOLDOWN),
+        )
+    return optax.constant_schedule(train_config.ENT_COEF)
+
+
+def _calculate_gae(
+    rollout_buffer: Transition, last_val: jax.Array, *, gamma: float, gae_lambda: float
+) -> tuple[jax.Array, jax.Array]:
+    def _get_advantages(gae_and_next_value: tuple[jax.Array, jax.Array], transition: Transition):
+        gae, next_value = gae_and_next_value
+        done, value, reward = transition.done, transition.value, transition.reward
+        delta = reward + gamma * next_value * (1 - done) - value
+        gae = delta + gamma * gae_lambda * (1 - done) * gae
+        return (gae, value), gae
+
+    _, advantages = jax.lax.scan(
+        _get_advantages, (jnp.zeros_like(last_val), last_val), rollout_buffer, reverse=True, unroll=16
+    )
+    return advantages, advantages + rollout_buffer.value
+
+
+def _initialize_network_params(
+    network: ActorCriticRNN, rng: jax.Array, *, num_envs: int, gru_hidden_dim: int, obs_shape: tuple[int, ...]
+) -> dict:
+    # ネットワークのパラメータ初期化は環境ごとに行う（エージェントの区別なし）
+    # shape: (1,NUM_ENV, height, width, channel), (1, NUM_ENVS)
+    init_x = (jnp.zeros((1, num_envs, *obs_shape[1:])), jnp.zeros((1, num_envs)))
+    init_hstate = ScannedRNN.initialize_carry(num_envs, gru_hidden_dim)
+    return network.init(rng, init_hstate, init_x)
+
+
+def _loss_fn(
+    params: dict[str, jax.Array],
+    init_hstate: jax.Array,
+    rollout_buffer: Transition,
+    gae: jax.Array,
+    targets: jax.Array,
+    ent_coef: jax.Array,
+    *,
+    network: ActorCriticRNN,
+    clip_eps: float,
+    vf_coef: float,
+) -> tuple[jax.Array, tuple]:
+    # 方策勾配法では方策の更新によって得られるデータが変わっていくため、損失の値そのものには意味がない
+    # https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html
+    _, pi, value = network.apply(params, init_hstate, (rollout_buffer.obs, rollout_buffer.done))
+
+    value_pred_clipped = rollout_buffer.value + (value - rollout_buffer.value).clip(-clip_eps, clip_eps)
+    value_losses = jnp.square(value - targets)
+    value_losses_clipped = jnp.square(value_pred_clipped - targets)
+    value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
+
+    log_prob = pi.log_prob(rollout_buffer.action).squeeze()
+    old_log_prob = rollout_buffer.log_prob.squeeze()
+    log_ratio_raw = log_prob - old_log_prob
+    approx_kl = jnp.nan_to_num((-log_ratio_raw).mean(), nan=0.0, posinf=1e9, neginf=-1e9)
+
+    log_clip_hi = jnp.log1p(clip_eps)
+    log_clip_lo = jnp.log1p(-clip_eps)
+    clipfrac = jnp.nan_to_num(
+        ((log_ratio_raw > log_clip_hi) | (log_ratio_raw < log_clip_lo)).mean(), nan=0.0, posinf=1.0, neginf=0.0
+    )
+    ratio = jnp.exp(jnp.clip(log_ratio_raw, -10.0, 10.0))
+
+    gae = (gae - gae.mean()) / (gae.std() + 1e-8)
+    loss_actor = -jnp.minimum(ratio * gae, jnp.clip(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * gae).mean()
+    entropy = pi.entropy().mean()
+
+    total_loss = loss_actor + vf_coef * value_loss - ent_coef * entropy
+    return total_loss, (value_loss, loss_actor, entropy, approx_kl, clipfrac)
+
+
+def _save_metrics(metrics: dict[str, jax.Array], seed_idx: int, *, model_dir: str, train_config: TrainConfig):
+    save_dir = Path(model_dir) / f"metrics_{seed_idx}"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    with open(save_dir / "metrics.csv", "w") as f:
+        for key in [
+            "original_reward",
+            "shaped_reward",
+            "anneal_factor",
+            "combined_reward",
+            "update_step",
+            "env_step",
+            "ent_coef",
+            "loss_total",
+            "loss_value",
+            "loss_actor",
+            "entropy",
+            "approx_kl",
+            "clipfrac",
+            "grad_norm",
+            "lr",
+            "skip_update_rate",
+            "adv_std",
+        ]:
+            out = f"{key}," + ",".join([str(x) for x in metrics[key]])
+            print(out, file=f)
+    with open(save_dir / "config.yaml", "w") as f:
+        yaml.dump(dataclasses.asdict(train_config), f)
+
+
+def make_train(app_config: AppConfig):  # noqa: C901, PLR0915
     train_config = app_config.train
     env = OvercookedCustom(app_config.env, random_agent_position=train_config.RANDOM_AGENT_POS)
     num_actors = env.num_agents * train_config.NUM_ENVS
@@ -162,84 +293,13 @@ def make_train(app_config: AppConfig):
     viz_rows: int | None = None
     viz_cols: int | None = None
     if app_config.visualize:
-
-        def _adjust_row_col(r: int, c: int):
-            # 縦：横が大体r:cになるような並べ方を探索
-            for rows in range(1, train_config.NUM_ENVS):
-                for cols in range(1, int(rows * c / r) + 1):
-                    if rows * cols >= train_config.NUM_ENVS:
-                        return (rows, cols)
-            return (1, train_config.NUM_ENVS)
-
-        viz_rows, viz_cols = _adjust_row_col(app_config.aspect_row, app_config.aspect_col)
+        viz_rows, viz_cols = _adjust_row_col(train_config.NUM_ENVS, app_config.aspect_row, app_config.aspect_col)
         viz = OvercookedCustomVisualizer()
         viz.show()
 
-    def initialize_network_params(network: ActorCriticRNN, rng: jax.Array):
-        # ネットワークのパラメータ初期化は環境ごとに行う（エージェントの区別なし）
-        # shape: (1,NUM_ENV, height, width, channel), (1, NUM_ENVS)
-        init_x = (jnp.zeros((1, train_config.NUM_ENVS, *env.obs_shape[1:])), jnp.zeros((1, train_config.NUM_ENVS)))
-        init_hstate = ScannedRNN.initialize_carry(train_config.NUM_ENVS, train_config.GRU_HIDDEN_DIM)
-        return network.init(rng, init_hstate, init_x)
-
-    def create_learning_rate_fn():
-        base_learning_rate = train_config.LR
-
-        lr_warmup = train_config.LR_WARMUP
-        # TrainStateのstep総数はapply_gradientsを呼び出す回数
-        total_update_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
-        warmup_steps = int(lr_warmup * total_update_steps)
-
-        warmup_fn = optax.linear_schedule(init_value=0.0, end_value=base_learning_rate, transition_steps=warmup_steps)
-
-        cosine_steps = max(total_update_steps - warmup_steps, 1)
-        cosine_fn = optax.cosine_decay_schedule(init_value=base_learning_rate, decay_steps=cosine_steps)
-
-        return optax.join_schedules(schedules=[warmup_fn, cosine_fn], boundaries=[warmup_steps])
-
-    lr_schedule = create_learning_rate_fn()
-
-    def schedule():
-        # 学習率スケジューリング
-        if train_config.ANNEAL_LR:
-            tx = optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr_schedule, eps=1e-5))
-        else:
-            lr = train_config.LR
-            tx = optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr, eps=1e-5))
-        return tx
-
-    def ent_coeff_schedule():
-        # エントロピー係数スケジューリング
-        if train_config.ANNEAL_ENT:
-            total_opt_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
-            ent_schedule = optax.linear_schedule(
-                init_value=train_config.ENT_COEF,
-                end_value=train_config.ENT_END,
-                transition_steps=int(total_opt_steps * train_config.ENT_COOLDOWN),
-            )
-        else:
-            ent_schedule = optax.constant_schedule(train_config.ENT_COEF)
-        return ent_schedule
-
-    ent_schedule = ent_coeff_schedule()
-
-    # GAE: generalized advantage estimate
-    # TODO: gamma, lambdaを引数に追加すれば純粋関数として共通化できる
-    # gamma(float): discount factor
-    # lambda(float): GAE mixing parameter
-    def _calculate_gae(rollout_buffer: Transition, last_val: jax.Array):
-        def _get_advantages(gae_and_next_value: tuple[jax.Array, jax.Array], transition: Transition):
-            gae, next_value = gae_and_next_value
-            done, value, reward = (transition.done, transition.value, transition.reward)
-            delta = reward + train_config.GAMMA * next_value * (1 - done) - value
-            gae = delta + train_config.GAMMA * train_config.GAE_LAMBDA * (1 - done) * gae
-            return (gae, value), gae
-
-        # unrollはXLAの最適化に関するパラメータで計算結果には関係しない
-        _, advantages = jax.lax.scan(
-            _get_advantages, (jnp.zeros_like(last_val), last_val), rollout_buffer, reverse=True, unroll=16
-        )
-        return advantages, advantages + rollout_buffer.value
+    lr_schedule = _create_lr_schedule(train_config, num_minibatches)
+    ent_schedule = _create_ent_schedule(train_config, num_minibatches)
+    save_metrics = functools.partial(_save_metrics, model_dir=model_dir, train_config=train_config)
 
     def save_checkpoint(train_state: TrainState, _hstate: jax.Array, metric: dict[str, jax.Array], step: int):
         # CheckpointManager.saveのstep数はintでなければならないのでcallbackで実装(update_stepはjitのint32[]でNG)
@@ -260,43 +320,18 @@ def make_train(app_config: AppConfig):
                 }
             )
 
-    def save_metrics(metrics: dict[str, jax.Array], seed_idx: int):
-        save_dir = Path(model_dir) / f"metrics_{seed_idx}"
-        save_dir.mkdir(parents=True, exist_ok=True)
-        with open(save_dir / "metrics.csv", "w") as f:
-            for key in [
-                "original_reward",
-                "shaped_reward",
-                "anneal_factor",
-                "combined_reward",
-                "update_step",
-                "env_step",
-                "ent_coef",
-                "loss_total",
-                "loss_value",
-                "loss_actor",
-                "entropy",
-                "approx_kl",
-                "clipfrac",
-                "grad_norm",
-                "lr",
-                "skip_update_rate",
-                "adv_std",
-            ]:
-                out = f"{key}," + ",".join([str(x) for x in metrics[key]])
-                print(out, file=f)
-        with open(save_dir / "config.yaml", "w") as f:
-            yaml.dump(dataclasses.asdict(train_config), f)
-
     def visualize_state(states: EnvState):
         if app_config.visualize:
             viz.render_multi(
                 states, viz_rows, viz_cols, title=f"{states.time[0]} / {env.max_steps} step", caption="caption"
             )
 
-    def train(rng: jax.Array, seed_idx: jax.Array):
+    def train(rng: jax.Array, seed_idx: jax.Array):  # noqa: PLR0915
         # NUM_SEEDS並列に実行
         network = ActorCriticRNN(env.num_actions, config=network_config_from_train(train_config))
+        loss_fn = functools.partial(
+            _loss_fn, network=network, clip_eps=train_config.CLIP_EPS, vf_coef=train_config.VF_COEF
+        )
 
         # COLLECT TRAJECTORIES
         def _env_step(last_runner_state: _RunnerState, _: None):
@@ -371,13 +406,8 @@ def make_train(app_config: AppConfig):
             reset_keys = jax.random.split(_reset_rng, train_config.NUM_ENVS)
 
             def _maybe_reset(done_i: jax.Array, key_i: jax.Array, obs_i: jax.Array, state_i: EnvState):
-                def _reset(_: None):
-                    return env.reset(key_i)
-
-                def _keep(_: None):
-                    return obs_i, state_i
-
-                return jax.lax.cond(done_i, _reset, _keep, operand=None)
+                reset_obs, reset_state = env.reset(key_i)
+                return jax.tree.map(lambda r, k: jnp.where(done_i, r, k), (reset_obs, reset_state), (obs_i, state_i))
 
             new_obsv, new_env_state = jax.vmap(_maybe_reset)(done, reset_keys, new_obsv, new_env_state)
             # doneはenvにつき1つなのでagent数分複製して(NUM_ACTORS,)の形にする
@@ -410,57 +440,6 @@ def make_train(app_config: AppConfig):
             # jax.debug.print("transition: {}", transition)
             return new_runner_state, transition
 
-        def _loss_fn(
-            params: dict[str, jax.Array],
-            init_hstate: jax.Array,
-            rollout_buffer: Transition,
-            gae: jax.Array,
-            targets: jax.Array,
-            ent_coef: jax.Array,
-        ):
-            # 方策勾配法では方策の更新によって得られるデータが変わっていくため、損失の値そのものには意味がない
-            # https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html
-
-            # RERUN NETWORK
-            _, pi, value = network.apply(params, init_hstate, (rollout_buffer.obs, rollout_buffer.done))
-
-            # CALCULATE VALUE LOSS
-            value_pred_clipped = rollout_buffer.value + (value - rollout_buffer.value).clip(
-                -train_config.CLIP_EPS, train_config.CLIP_EPS
-            )
-            value_losses = jnp.square(value - targets)
-            value_losses_clipped = jnp.square(value_pred_clipped - targets)
-            value_loss = 0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
-
-            # CALCULATE ACTOR LOSS
-            log_prob = pi.log_prob(rollout_buffer.action)
-            log_prob = log_prob.squeeze()
-            old_log_prob = rollout_buffer.log_prob.squeeze()
-            log_ratio_raw = log_prob - old_log_prob  # (T, B)
-            # approx KL（SpinningUp等で使われる近似）
-            approx_kl = (-log_ratio_raw).mean()
-            approx_kl = jnp.nan_to_num(approx_kl, nan=0.0, posinf=1e9, neginf=-1e9)
-
-            # clipfrac（ratio を exp せず log 空間で判定：オーバーフロー回避）
-            log_clip_hi = jnp.log1p(train_config.CLIP_EPS)  # log(1+eps)
-            log_clip_lo = jnp.log1p(-train_config.CLIP_EPS)  # log(1-eps)
-            clipfrac = ((log_ratio_raw > log_clip_hi) | (log_ratio_raw < log_clip_lo)).mean()
-            clipfrac = jnp.nan_to_num(clipfrac, nan=0.0, posinf=1.0, neginf=0.0)
-            # surrogate に使う ratio は安定のため clipして exp
-            log_ratio = jnp.clip(log_ratio_raw, -10.0, 10.0)
-            ratio = jnp.exp(log_ratio)
-            # ratio = jnp.exp(log_prob - rollout_buffer.log_prob)
-
-            gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-            loss_actor1 = ratio * gae
-            loss_actor2 = jnp.clip(ratio, 1.0 - train_config.CLIP_EPS, 1.0 + train_config.CLIP_EPS) * gae
-            loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
-            loss_actor = loss_actor.mean()
-            entropy = pi.entropy().mean()
-
-            total_loss = loss_actor + train_config.VF_COEF * value_loss - ent_coef * entropy
-            return total_loss, (value_loss, loss_actor, entropy, approx_kl, clipfrac)
-
         # UPDATE NETWORK
         def _update_epoch(
             epoch_update_state: tuple[TrainState, jax.Array, Transition, jax.Array, jax.Array, jax.Array], _: None
@@ -472,7 +451,7 @@ def make_train(app_config: AppConfig):
                 init_hstate = init_hstate.squeeze(axis=0)
 
                 ent_coef = ent_schedule(train_state.step)
-                grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+                grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
                 (loss_value, aux), grads = grad_fn(
                     train_state.params, init_hstate, rollout_buffer, advantages, targets, ent_coef
                 )
@@ -486,12 +465,6 @@ def make_train(app_config: AppConfig):
                 )
                 is_finite = jnp.isfinite(loss_value) & grads_finite
 
-                def _apply(ts: TrainState):
-                    return ts.apply_gradients(grads=safe_grads)
-
-                def _skip(ts: TrainState):
-                    return ts
-
                 # 追加：更新が起きているかの即死チェック用ログ
                 grad_norm = optax.global_norm(safe_grads)
                 lr = lr_schedule(train_state.step)
@@ -500,7 +473,8 @@ def make_train(app_config: AppConfig):
                 # aux の後ろに追加（既存の index を壊さない）
                 aux = (*aux, grad_norm, lr, skip_update)
 
-                train_state = jax.lax.cond(is_finite, _apply, _skip, train_state)
+                updated_state = train_state.apply_gradients(grads=safe_grads)
+                train_state = jax.tree.map(lambda u, s: jnp.where(is_finite, u, s), updated_state, train_state)
 
                 # ログに出すlossもfinite化
                 loss_value_safe = jnp.nan_to_num(loss_value, nan=0.0, posinf=0.0, neginf=0.0)
@@ -555,7 +529,9 @@ def make_train(app_config: AppConfig):
             _, _, last_val = network.apply(train_state.params, hstate, ac_in)
             last_val = last_val.squeeze()  # (NUM_ACTORS, )
 
-            advantages, targets = _calculate_gae(rollout_buffer, last_val)
+            advantages, targets = _calculate_gae(
+                rollout_buffer, last_val, gamma=train_config.GAMMA, gae_lambda=train_config.GAE_LAMBDA
+            )
             # advantages: 行動価値 - 状態価値
             # targets: 行動価値
             # advantages, targets: (TIMESTEPS, NUM_ACTORS)
@@ -619,8 +595,14 @@ def make_train(app_config: AppConfig):
         def _initialize_runner_state(rng: jax.Array):
             # ネットワークの初期化
             rng, initialize_rng = jax.random.split(rng)
-            init_network_params = initialize_network_params(network, initialize_rng)
-            tx = schedule()
+            init_network_params = _initialize_network_params(
+                network,
+                initialize_rng,
+                num_envs=train_config.NUM_ENVS,
+                gru_hidden_dim=train_config.GRU_HIDDEN_DIM,
+                obs_shape=env.obs_shape,
+            )
+            tx = _create_optimizer(train_config, lr_schedule)
             init_train_state = TrainState.create(apply_fn=network.apply, params=init_network_params, tx=tx)
 
             # 環境の初期化
