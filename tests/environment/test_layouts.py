@@ -131,7 +131,7 @@ class TestFromStringValidation:
     """不正レイアウトのエラー処理テスト."""
 
     def test_non_string_raises(self):
-        with pytest.raises(ValueError, match="must be a string"):
+        with pytest.raises(TypeError, match="must be a string"):
             Layout.from_string(123)
 
     def test_multiple_entrances_raise(self):
