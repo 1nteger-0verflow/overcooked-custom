@@ -294,7 +294,7 @@ def make_train(app_config: AppConfig):
                 states, viz_rows, viz_cols, title=f"{states.time[0]} / {env.max_steps} step", caption="caption"
             )
 
-    def train(rng: jax.Array, seed_idx: int):
+    def train(rng: jax.Array, seed_idx: jax.Array):
         # NUM_SEEDS並列に実行
         network = ActorCriticRNN(env.num_actions, config=network_config_from_train(train_config))
 
@@ -681,8 +681,8 @@ def main(config: DictConfig):
     with jax.disable_jit(False):
         rng = jax.random.key(app_config.train.SEED)
         rngs = jax.random.split(rng, num_seeds)
-        train_jit = jax.jit(make_train(app_config))
-        out = jax.vmap(train_jit)(rngs, jnp.arange(num_seeds))
+        train_fn = make_train(app_config)
+        out = jax.vmap(jax.jit(train_fn))(rngs, jnp.arange(num_seeds))
 
 
 if __name__ == "__main__":

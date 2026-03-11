@@ -1,6 +1,7 @@
 import dataclasses
 from pathlib import Path
 
+import distrax
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
@@ -42,10 +43,11 @@ class IPPOModelInput(AgentController):
     def sample_action(self, obs: jnp.ndarray):
         obs_batch = obs[jnp.newaxis, :]
         ac_in = (obs_batch[jnp.newaxis, :], jnp.array([[0]]))
+        pi: distrax.Categorical
         self.hstate, pi, val = self.network.apply(self.params, self.hstate[jnp.newaxis, :], ac_in)
-        log_probs = jnp.array([pi.log_prob(i) for i in range(self.num_actions)])
-        jax.debug.callback(self.print_decision, log_probs, val)
-        return jnp.argmax(log_probs)
+        probs = pi.probs
+        jax.debug.callback(self.print_decision, probs, val)
+        return jnp.argmax(probs)
 
     def input_observation(self, obs: jnp.ndarray):
         self.next_action = self.sample_action(obs[self.agent_id])
@@ -53,13 +55,12 @@ class IPPOModelInput(AgentController):
     def get_action(self):
         return self.next_action
 
-    def print_decision(self, log_probs: jnp.ndarray, val: jnp.ndarray):
+    def print_decision(self, probs: jnp.ndarray, val: jnp.ndarray):
         if self.verbose:
-            probs = jnp.exp(log_probs)
             jax.debug.print(
                 "[agent{}] action: {}, {}, value = {:.6f}",
                 self.agent_id,
-                jnp.argmax(log_probs),
+                jnp.argmax(probs),
                 jnp.rint(probs.squeeze() * 100),
                 val.squeeze(),
             )
