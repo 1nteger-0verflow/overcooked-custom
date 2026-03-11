@@ -4,6 +4,59 @@ import numpy as np
 
 from environment.static_object import StaticObject
 
+_CHAR_TO_STATIC_ITEM: dict[str, StaticObject] = {
+    " ": StaticObject.EMPTY,
+    "W": StaticObject.WALL,
+    "C": StaticObject.COUNTER,
+    "E": StaticObject.ENTRANCE,
+    "R": StaticObject.REGISTER,
+    "B": StaticObject.PLATE_PILE,
+    "P": StaticObject.POT,
+    "S": StaticObject.SINK,
+    "T": StaticObject.TABLE,
+    "c": StaticObject.CHAIR,
+    "G": StaticObject.GARBAGE_CAN,
+    "0": StaticObject.INGREDIENT_0,
+    "1": StaticObject.INGREDIENT_1,
+    "2": StaticObject.INGREDIENT_2,
+    "3": StaticObject.INGREDIENT_3,
+    "4": StaticObject.INGREDIENT_4,
+    "5": StaticObject.INGREDIENT_5,
+    "6": StaticObject.INGREDIENT_6,
+    "7": StaticObject.INGREDIENT_7,
+    "8": StaticObject.INGREDIENT_8,
+    "9": StaticObject.INGREDIENT_9,
+}
+
+
+def _split_rows(grid: str) -> list[str]:
+    if not isinstance(grid, str):
+        msg = "Invalid layout, must be a string layout"
+        raise TypeError(msg)
+    rows = grid.split("\n")
+    if len(rows[0]) == 0:
+        rows = rows[1:]
+    if len(rows[-1]) == 0:
+        rows = rows[:-1]
+    return rows
+
+
+def _validate_grid(
+    num_tables: int,
+    num_chairs: int,
+    entrance_positions: list[tuple[int, int]],
+    register_positions: list[tuple[int, int]],
+) -> None:
+    if num_tables != num_chairs:
+        msg = f"Table and Chair must match. ({num_tables}Tables, {num_chairs}Chairs.)"
+        raise ValueError(msg)
+    if len(entrance_positions) > 1:
+        msg = "Multiple Entrance is not allowed."
+        raise ValueError(msg)
+    if len(register_positions) < 1:
+        msg = "Register is not included in layout."
+        raise ValueError(msg)
+
 
 @dataclass
 class Layout:
@@ -46,7 +99,7 @@ class Layout:
         return len(self.agent_positions)
 
     @staticmethod
-    def from_string(grid: str):  # , possible_recipes:List[List[int]]|None=None):
+    def from_string(grid: str):
         """Assumes `grid` is string representation of the layout, with 1 line per row, and the following symbols.
 
         A: agent
@@ -63,63 +116,27 @@ class Layout:
         0-9: Ingredient x pile
         ' ' (space) : empty cell
         """
-        if not isinstance(grid, str):
-            raise ValueError("Invalid layout, must be a string layout")
-
-        rows = grid.split("\n")
-
-        if len(rows[0]) == 0:
-            rows = rows[1:]
-        if len(rows[-1]) == 0:
-            rows = rows[:-1]
-
+        rows = _split_rows(grid)
         row_lens = [len(row) for row in rows]
         static_objects = np.zeros((len(rows), max(row_lens)), dtype=int)
 
-        char_to_static_item = {
-            " ": StaticObject.EMPTY,
-            "W": StaticObject.WALL,
-            "C": StaticObject.COUNTER,
-            "E": StaticObject.ENTRANCE,
-            "R": StaticObject.REGISTER,
-            "B": StaticObject.PLATE_PILE,
-            "P": StaticObject.POT,
-            "S": StaticObject.SINK,
-            "T": StaticObject.TABLE,
-            "c": StaticObject.CHAIR,
-            "G": StaticObject.GARBAGE_CAN,
-            "0": StaticObject.INGREDIENT_0,
-            "1": StaticObject.INGREDIENT_1,
-            "2": StaticObject.INGREDIENT_2,
-            "3": StaticObject.INGREDIENT_3,
-            "4": StaticObject.INGREDIENT_4,
-            "5": StaticObject.INGREDIENT_5,
-            "6": StaticObject.INGREDIENT_6,
-            "7": StaticObject.INGREDIENT_7,
-            "8": StaticObject.INGREDIENT_8,
-            "9": StaticObject.INGREDIENT_9,
-        }
-
-        agent_positions = []
-        entrance_positions = []
-        plate_positions = []
-        table_positions = []
-        chair_positions = []
-        register_positions = []
-
+        agent_positions: list[tuple[int, int]] = []
+        entrance_positions: list[tuple[int, int]] = []
+        plate_positions: list[tuple[int, int]] = []
+        table_positions: list[tuple[int, int]] = []
+        chair_positions: list[tuple[int, int]] = []
+        register_positions: list[tuple[int, int]] = []
         num_ingredients = 0
         num_tables = 0
         num_chairs = 0
-        for r, row in enumerate(rows):
-            c = 0
-            while c < len(row):
-                pos = [r, c]
-                char = row[c]
 
+        for r, row in enumerate(rows):
+            for c, char in enumerate(row):
+                pos = [r, c]
+                obj = _CHAR_TO_STATIC_ITEM.get(char, StaticObject.EMPTY)
+                static_objects[r, c] = obj
                 if char == "A":
                     agent_positions.append(pos)
-
-                obj = char_to_static_item.get(char, StaticObject.EMPTY)
                 if obj == StaticObject.PLATE_PILE:
                     plate_positions.append(pos)
                 elif obj == StaticObject.ENTRANCE:
@@ -132,23 +149,11 @@ class Layout:
                     chair_positions.append(pos)
                 elif obj == StaticObject.REGISTER:
                     register_positions.append(pos)
-                static_objects[r, c] = obj
-
                 if StaticObject.is_ingredient_pile(obj):
                     ingredient_idx = obj - StaticObject.INGREDIENT_PILE_BASE
                     num_ingredients = max(num_ingredients, ingredient_idx + 1)
 
-                c += 1
-
-        if num_tables != num_chairs:
-            msg = f"Table and Chair must match. ({num_tables}Tables, {num_chairs}Chairs.)"
-            raise ValueError(msg)
-        if len(entrance_positions) > 1:
-            msg = "Multiple Entrance is not allowed."
-            raise ValueError(msg)
-        if len(register_positions) < 1:
-            msg = "Register is not included in layout."
-            raise ValueError(msg)
+        _validate_grid(num_tables, num_chairs, entrance_positions, register_positions)
         # TODO: add some sanity checks - e.g. agent must exist, surrounded by walls, etc.
 
         return Layout(
