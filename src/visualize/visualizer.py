@@ -322,133 +322,118 @@ class OvercookedCustomVisualizer:
         return jax.lax.fori_loop(0, line_length, _render_line, img)
 
     @staticmethod
+    def _render_cell_empty(cell: jax.Array, img: jnp.ndarray):
+        return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
+
+    @staticmethod
+    def _render_cell_wall(cell: jax.Array, img: jnp.ndarray):
+        img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["brown"])
+        return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
+
+    @staticmethod
+    def _render_cell_agent(cell: jax.Array, img: jnp.ndarray):
+        tri_fn = rendering.point_in_triangle((0.12, 0.19), (0.87, 0.50), (0.12, 0.81))
+        direction, idx = OvercookedCustomVisualizer._decode_agent_extras(cell[Channel.extra])
+        agent_color = AGENT_COLORS[idx]
+        tri_fn = rendering.rotate_fn(tri_fn, cx=0.5, cy=0.5, theta=0.5 * math.pi * direction)
+        img = rendering.fill_coords(img, tri_fn, agent_color)
+        return OvercookedCustomVisualizer._render_dynamic_item(
+            cell[1],
+            img,
+            plate_fn=rendering.point_in_circle(0.75, 0.75, 0.2),
+            ingredient_fn=rendering.point_in_circle(0.75, 0.75, 0.15),
+            dish_positions=jnp.array([(0.65, 0.65), (0.85, 0.65), (0.75, 0.85)]),
+        )
+
+    @staticmethod
+    def _render_cell_agent_self(_cell: jax.Array, img: jnp.ndarray):
+        # Note: This should not ever be called
+        return img
+
+    @staticmethod
+    def _render_cell_counter(cell: jax.Array, img: jnp.ndarray):
+        img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
+        return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
+
+    @staticmethod
+    def _render_cell_sink(cell: jax.Array, img: jnp.ndarray):
+        img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["cyan"])
+        plate_count = DynamicObject.get_count(cell[1])
+
+        def _render_plate_in_sink(i: int, img: jnp.ndarray):
+            pos = ((i + 1) / (plate_count + 1), 0.5)
+            r = 1 / (plate_count + 2)
+            plate_fn = rendering.point_in_circle(pos[0], pos[1], r)
+            return rendering.fill_coords(img, plate_fn, COLORS["white"])
+
+        return jax.lax.fori_loop(0, plate_count, _render_plate_in_sink, img)
+
+    @staticmethod
+    def _render_cell_register(cell: jax.Array, img: jnp.ndarray):
+        img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.1, 0.9), COLORS["yellow"])
+        check_fn = rendering.point_in_circle(0.5, 0.5, 0.3)
+        return jax.lax.cond(cell[2] > 0, lambda: rendering.fill_coords(img, check_fn, COLORS["red"]), lambda: img)
+
+    @staticmethod
+    def _render_cell_entrance(cell: jax.Array, img: jnp.ndarray):
+        img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["light_blue"])
+        return OvercookedCustomVisualizer._render_line(cell[2], img)
+
+    @staticmethod
+    def _render_cell_plate_pile(_cell: jax.Array, img: jnp.ndarray):
+        img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
+        plate_fns = [rendering.point_in_circle(*coord, 0.2) for coord in [(0.3, 0.3), (0.75, 0.42), (0.4, 0.75)]]
+        for plate_fn in plate_fns:
+            img = rendering.fill_coords(img, plate_fn, COLORS["white"])
+        return img
+
+    @staticmethod
+    def _render_cell_ingredient_pile(cell: jax.Array, img: jnp.ndarray):
+        ingredient_idx = cell[0] - StaticObject.INGREDIENT_PILE_BASE
+        img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
+        ingredient_fns = [
+            rendering.point_in_circle(*coord, 0.15)
+            for coord in [(0.5, 0.15), (0.3, 0.4), (0.8, 0.35), (0.4, 0.8), (0.75, 0.75)]
+        ]
+        for ingredient_fn in ingredient_fns:
+            img = rendering.fill_coords(img, ingredient_fn, INGREDIENT_COLORS[ingredient_idx])
+        return img
+
+    @staticmethod
+    def _render_cell_garbage_can(_cell: jax.Array, img: jnp.ndarray):
+        img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["white"])
+        img = rendering.fill_coords(img, rendering.point_in_rect(0.4, 0.6, 0.1, 0.2), COLORS["blue"])
+        img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.2, 0.25), COLORS["blue"])
+        img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.3, 0.95), COLORS["blue"])
+        img = rendering.fill_coords(img, rendering.point_in_rect(0.25, 0.35, 0.4, 0.85), COLORS["white"])
+        img = rendering.fill_coords(img, rendering.point_in_rect(0.45, 0.55, 0.4, 0.85), COLORS["white"])
+        return rendering.fill_coords(img, rendering.point_in_rect(0.65, 0.75, 0.4, 0.85), COLORS["white"])
+
+    @staticmethod
     def _render_cell(cell: jax.Array, img: jnp.ndarray):
         static_object = cell[0]
-
-        def _render_empty(cell: jax.Array, img: jnp.ndarray):
-            return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
-
-        def _render_wall(cell: jax.Array, img: jnp.ndarray):
-            img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["brown"])
-            return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
-
-        def _render_agent(cell: jax.Array, img: jnp.ndarray):
-            tri_fn = rendering.point_in_triangle((0.12, 0.19), (0.87, 0.50), (0.12, 0.81))
-
-            direction, idx = OvercookedCustomVisualizer._decode_agent_extras(cell[Channel.extra])
-
-            # A bit hacky, but needed so that actions order matches the one of Overcooked-AI
-            # direction_reordering = jnp.array([3, 1, 0, 2])
-            # direction = direction_reordering[direction]
-
-            agent_color = AGENT_COLORS[idx]
-
-            tri_fn = rendering.rotate_fn(tri_fn, cx=0.5, cy=0.5, theta=0.5 * math.pi * direction)
-            img = rendering.fill_coords(img, tri_fn, agent_color)
-
-            return OvercookedCustomVisualizer._render_dynamic_item(
-                cell[1],
-                img,
-                plate_fn=rendering.point_in_circle(0.75, 0.75, 0.2),
-                ingredient_fn=rendering.point_in_circle(0.75, 0.75, 0.15),
-                dish_positions=jnp.array([(0.65, 0.65), (0.85, 0.65), (0.75, 0.85)]),
-            )
-
-        def _render_agent_self(_cell: jax.Array, img: jnp.ndarray):
-            # Note: This should not ever be called
-            return img
-
-        def _render_pot(cell: jax.Array, img: jnp.ndarray):
-            return OvercookedCustomVisualizer._render_pot(cell, img)
-
-        def _render_table(cell: jax.Array, img: jnp.ndarray):
-            return OvercookedCustomVisualizer._render_table(cell, img)
-
-        def _render_chair(cell: jax.Array, img: jnp.ndarray):
-            return OvercookedCustomVisualizer._render_chair(cell, img)
-
-        def _render_counter(cell: jax.Array, img: jnp.ndarray):
-            img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
-            return OvercookedCustomVisualizer._render_dynamic_item(cell[1], img)
-
-        def _render_sink(cell: jax.Array, img: jnp.ndarray):
-            img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["cyan"])
-            plate_count = DynamicObject.get_count(cell[1])
-
-            def _render_plate_in_sink(i: int, img: jnp.ndarray):
-                pos = ((i + 1) / (plate_count + 1), 0.5)
-                r = 1 / (plate_count + 2)
-                plate_fn = rendering.point_in_circle(pos[0], pos[1], r)
-                return rendering.fill_coords(img, plate_fn, COLORS["white"])
-
-            return jax.lax.fori_loop(0, plate_count, _render_plate_in_sink, img)
-
-        def _render_register(cell: jax.Array, img: jnp.ndarray):
-            img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.1, 0.9), COLORS["yellow"])
-            check_fn = rendering.point_in_circle(0.5, 0.5, 0.3)
-            img = jax.lax.cond(cell[2] > 0, lambda: rendering.fill_coords(img, check_fn, COLORS["red"]), lambda: img)
-            return img
-
-        def _render_entrance(cell: jax.Array, img: jnp.ndarray):
-            img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["light_blue"])
-            return OvercookedCustomVisualizer._render_line(cell[2], img)
-
-        def _render_plate_pile(_cell: jax.Array, img: jnp.ndarray):
-            img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
-            plate_fns = [rendering.point_in_circle(*coord, 0.2) for coord in [(0.3, 0.3), (0.75, 0.42), (0.4, 0.75)]]
-            for plate_fn in plate_fns:
-                img = rendering.fill_coords(img, plate_fn, COLORS["white"])
-            return img
-
-        def _render_ingredient_pile(cell: jax.Array, img: jnp.ndarray):
-            ingredient_idx = cell[0] - StaticObject.INGREDIENT_PILE_BASE
-
-            img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["grey"])
-            ingredient_fns = [
-                rendering.point_in_circle(*coord, 0.15)
-                for coord in [(0.5, 0.15), (0.3, 0.4), (0.8, 0.35), (0.4, 0.8), (0.75, 0.75)]
-            ]
-
-            for ingredient_fn in ingredient_fns:
-                img = rendering.fill_coords(img, ingredient_fn, INGREDIENT_COLORS[ingredient_idx])
-
-            return img
-
-        def _render_garbage_can(_cell: jax.Array, img: jnp.ndarray):
-            img = rendering.fill_coords(img, rendering.point_in_rect(0, 1, 0, 1), COLORS["white"])
-            img = rendering.fill_coords(img, rendering.point_in_rect(0.4, 0.6, 0.1, 0.2), COLORS["blue"])
-            img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.2, 0.25), COLORS["blue"])
-            img = rendering.fill_coords(img, rendering.point_in_rect(0.1, 0.9, 0.3, 0.95), COLORS["blue"])
-            img = rendering.fill_coords(img, rendering.point_in_rect(0.25, 0.35, 0.4, 0.85), COLORS["white"])
-            img = rendering.fill_coords(img, rendering.point_in_rect(0.45, 0.55, 0.4, 0.85), COLORS["white"])
-            return rendering.fill_coords(img, rendering.point_in_rect(0.65, 0.75, 0.4, 0.85), COLORS["white"])
-
+        v = OvercookedCustomVisualizer
         render_fns_dict = {
-            StaticObject.EMPTY: _render_empty,
-            StaticObject.WALL: _render_wall,
-            StaticObject.AGENT: _render_agent,
-            StaticObject.SELF_AGENT: _render_agent_self,
-            StaticObject.POT: _render_pot,
-            StaticObject.PLATE_PILE: _render_plate_pile,
-            StaticObject.COUNTER: _render_counter,
-            StaticObject.SINK: _render_sink,
-            StaticObject.REGISTER: _render_register,
-            StaticObject.ENTRANCE: _render_entrance,
-            StaticObject.TABLE: _render_table,
-            StaticObject.CHAIR: _render_chair,
-            StaticObject.GARBAGE_CAN: _render_garbage_can,
+            StaticObject.EMPTY: v._render_cell_empty,
+            StaticObject.WALL: v._render_cell_wall,
+            StaticObject.AGENT: v._render_cell_agent,
+            StaticObject.SELF_AGENT: v._render_cell_agent_self,
+            StaticObject.POT: v._render_pot,
+            StaticObject.PLATE_PILE: v._render_cell_plate_pile,
+            StaticObject.COUNTER: v._render_cell_counter,
+            StaticObject.SINK: v._render_cell_sink,
+            StaticObject.REGISTER: v._render_cell_register,
+            StaticObject.ENTRANCE: v._render_cell_entrance,
+            StaticObject.TABLE: v._render_table,
+            StaticObject.CHAIR: v._render_chair,
+            StaticObject.GARBAGE_CAN: v._render_cell_garbage_can,
         }
-        # for i in range(MAX_CUSTOMERS):
-        #    render_fns_dict[StaticObject.TABLE_BASE + i] = _render_table
-        #    render_fns_dict[StaticObject.CHAIR_BASE + i] = _render_chair
-
-        render_fns = [_render_empty] * (max(render_fns_dict.keys()) + 2)
+        render_fns = [v._render_cell_empty] * (max(render_fns_dict.keys()) + 2)
         for key, value in render_fns_dict.items():
             render_fns[key] = value
-        render_fns[-1] = _render_ingredient_pile
+        render_fns[-1] = v._render_cell_ingredient_pile
 
         branch_idx = jnp.clip(static_object, 0, len(render_fns) - 1)
-
         return jax.lax.switch(branch_idx, render_fns, cell, img)
 
     @staticmethod
