@@ -40,17 +40,17 @@ class IPPOModelInput(AgentController):
         print(f"[Agent {agent_id}] IPPO agent model is loaded from {chkpt_dir}/{step}.")
 
     @jax.jit(static_argnums=(0,))
-    def sample_action(self, obs: jnp.ndarray):
+    def sample_action(self, obs: jnp.ndarray, hstate: jax.Array):
         obs_batch = obs[jnp.newaxis, :]
         ac_in = (obs_batch[jnp.newaxis, :], jnp.array([[0]]))
         pi: distrax.Categorical
-        self.hstate, pi, val = self.network.apply(self.params, self.hstate[jnp.newaxis, :], ac_in)
+        new_hstate, pi, val = self.network.apply(self.params, hstate[jnp.newaxis, :], ac_in)
         probs = pi.probs
         jax.debug.callback(self.print_decision, probs, val)
-        return jnp.argmax(probs)
+        return new_hstate, jnp.argmax(probs)
 
     def input_observation(self, obs: jnp.ndarray):
-        self.next_action = self.sample_action(obs[self.agent_id])
+        self.hstate, self.next_action = self.sample_action(obs[self.agent_id], self.hstate)
 
     def get_action(self):
         return self.next_action
