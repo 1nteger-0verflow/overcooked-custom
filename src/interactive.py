@@ -122,6 +122,55 @@ class InteractiveOvercookedCustom:
             self.state_seq.append(self.state)
         self._redraw()
 
+    def _update_task_rewards(self, reward_types: jax.Array, shaped_reward: jax.Array) -> None:
+        for agent_idx, (reward_type, rew) in enumerate(zip(reward_types, shaped_reward)):
+            task = RewardType(reward_type).name
+            cur_value = self.task_rewards[task][agent_idx]
+            self.task_rewards[task] = self.task_rewards[task].at[agent_idx].set(cur_value + rew)
+
+    def _inspect_observation(self, obs: jax.Array) -> None:
+        transposed_obs = jnp.transpose(obs, (0, 3, 1, 2))
+        target_agent = 0
+        while True:
+            k = input(
+                "observationの確認(数字:指定のチャンネルを表示, h:チャンネル確認, a:エージェント変更, q:終了)："
+            )
+            if k == "q":
+                break
+            if k == "h":
+                self.env.observer.print_layer_info()
+            elif k == "a":
+                try:
+                    select_agent = int(input(f"エージェントを選択(0~{self.env.num_agents - 1})"))
+                    if select_agent >= self.env.num_agents:
+                        print(f"agent_id({select_agent})は無効 (0~{self.env.num_agents - 1})")
+                    else:
+                        target_agent = select_agent
+                except ValueError:
+                    pass
+            else:
+                try:
+                    layer = int(k)
+                    print(f"---- channel {layer} -----------------------------")
+                    print(transposed_obs[target_agent][layer])
+                except ValueError:
+                    pass
+        self.interrupt_obs = False
+
+    def _handle_done(self) -> None:
+        self.display_scores()
+        if self.loop:
+            self.save_log(self.iter_num)
+            self.iter_num += 1
+            self._reset()
+        else:
+            if self.save_gif:
+                print(f"saving animation to {self.gif_filename} ...", end="", flush=True)
+                self.viz.animate(self.state_seq, self.gif_filename)
+                print("done.")
+            self.save_log(None)
+            sys.exit()
+
     def _step(self):
         actions = self.controller.operate()
         if self.log:
@@ -133,10 +182,7 @@ class InteractiveOvercookedCustom:
         obs, state, reward, shaped_reward, reward_types, done = self.env.step_env(self.state, actions, subkey)
         self.total_reward += reward
         self.total_shaped_reward += shaped_reward
-        for agent_idx, (reward_type, rew) in enumerate(zip(reward_types, shaped_reward)):
-            task = RewardType(reward_type).name
-            cur_value = self.task_rewards[task][agent_idx]
-            self.task_rewards[task] = self.task_rewards[task].at[agent_idx].set(cur_value + rew)
+        self._update_task_rewards(reward_types, shaped_reward)
         if self.save_gif:
             self.state_seq.append(state)
         if self.profile:
@@ -155,47 +201,9 @@ class InteractiveOvercookedCustom:
             jax.debug.print("reward: {},  shaped_reward: {}", reward, shaped_reward, ordered=True)
             jax.debug.print("-" * 60, ordered=True)
         if self.interrupt_obs:
-            transposed_obs = jnp.transpose(obs, (0, 3, 1, 2))
-            target_agent = 0
-            while True:
-                k = input(
-                    "observationの確認(数字:指定のチャンネルを表示, h:チャンネル確認, a:エージェント変更, q:終了)："
-                )
-                if k == "q":
-                    break
-                if k == "h":
-                    self.env.observer.print_layer_info()
-                elif k == "a":
-                    try:
-                        select_agent = int(input(f"エージェントを選択(0~{self.env.num_agents - 1})"))
-                        if select_agent >= self.env.num_agents:
-                            print(f"agent_id({select_agent})は無効 (0~{self.env.num_agents - 1})")
-                        else:
-                            target_agent = select_agent
-                    except ValueError:
-                        pass
-                else:
-                    try:
-                        layer = int(k)
-                        print(f"---- channel {layer} -----------------------------")
-                        print(transposed_obs[target_agent][layer])
-                    except ValueError:
-                        pass
-            self.interrupt_obs = False
-
-        if done and self.loop:
-            self.display_scores()
-            self.save_log(self.iter_num)
-            self.iter_num += 1
-            self._reset()
-        elif done and not self.loop:
-            self.display_scores()
-            if self.save_gif:
-                print(f"saving animation to {self.gif_filename} ...", end="", flush=True)
-                self.viz.animate(self.state_seq, self.gif_filename)
-                print("done.")
-            self.save_log(None)
-            sys.exit()
+            self._inspect_observation(obs)
+        if done:
+            self._handle_done()
         else:
             self._redraw()
 
