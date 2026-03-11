@@ -55,6 +55,10 @@ AGENT_COLORS = jnp.array(
     [COLORS["red"], COLORS["blue"], COLORS["green"], COLORS["purple"], COLORS["yellow"], COLORS["orange"]]
 )
 
+_PLATE_FN: abc.Callable[[float, float], bool] = rendering.point_in_circle(0.5, 0.5, 0.3)
+_INGREDIENT_FN: abc.Callable[[float, float], bool] = rendering.point_in_circle(0.5, 0.5, 0.15)
+_DISH_POSITIONS: jnp.ndarray = jnp.array([(0.5, 0.4), (0.4, 0.6), (0.6, 0.6)])
+
 
 class OvercookedCustomVisualizer:
     """Manages a window and renders contents of EnvState instances to it."""
@@ -224,9 +228,9 @@ class OvercookedCustomVisualizer:
     def _render_dynamic_item(
         obj: jax.Array,
         img: jnp.ndarray,
-        plate_fn: abc.Callable[[float, float], bool] = rendering.point_in_circle(0.5, 0.5, 0.3),
-        ingredient_fn: abc.Callable[[float, float], bool] = rendering.point_in_circle(0.5, 0.5, 0.15),
-        dish_positions: jnp.ndarray = jnp.array([(0.5, 0.4), (0.4, 0.6), (0.6, 0.6)]),
+        plate_fn: abc.Callable[[float, float], bool] = _PLATE_FN,
+        ingredient_fn: abc.Callable[[float, float], bool] = _INGREDIENT_FN,
+        dish_positions: jnp.ndarray = _DISH_POSITIONS,
     ):
         def _no_op(img: jnp.ndarray, _obj: jax.Array):
             return img
