@@ -149,15 +149,11 @@ class InteractiveOvercookedCustom:
             print(f"==== {self.state.time} / {self.env.max_steps} step")
             print("=" * 80)
 
-            @jax.jit
-            def _info():
-                jax.debug.print("{}", state, ordered=True)
-                jax.debug.print("-" * 60, ordered=True)
-                jax.debug.print("■■ 報酬 ■■", ordered=True)
-                jax.debug.print("reward: {},  shaped_reward: {}", reward, shaped_reward, ordered=True)
-                jax.debug.print("-" * 60, ordered=True)
-
-            _info()
+            jax.debug.print("{}", state, ordered=True)
+            jax.debug.print("-" * 60, ordered=True)
+            jax.debug.print("■■ 報酬 ■■", ordered=True)
+            jax.debug.print("reward: {},  shaped_reward: {}", reward, shaped_reward, ordered=True)
+            jax.debug.print("-" * 60, ordered=True)
         if self.interrupt_obs:
             transposed_obs = jnp.transpose(obs, (0, 3, 1, 2))
             target_agent = 0
