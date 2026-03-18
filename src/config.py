@@ -238,7 +238,7 @@ class PlayConfig:
 class EvalConfig:
     env: EnvConfig
     # ui: dict[str, Any]
-    seed: list[int]
+    seed: tuple[int, ...]
     random_agent_position: bool
     visualize: bool
     loop: int
@@ -369,19 +369,13 @@ def interactive_config_from_omegaconf(cfg: DictConfig) -> InteractiveConfig:
     )
 
 
-def evaluate_config_from_omegaconf(cfg: DictConfig):
+def evaluate_config_from_omegaconf(cfg: DictConfig) -> EvalConfig:
     return EvalConfig(
         env=env_config_from_omegaconf(cfg.env),
-        verbose=bool(cfg.verbose),
         seed=tuple(int(x) for x in cfg.seed),
         random_agent_position=bool(cfg.random_agent_position),
-        confirm=bool(cfg.confirm),
         visualize=bool(cfg.visualize),
-        loop=bool(cfg.loop),
+        loop=int(cfg.loop),
         save_gif=bool(cfg.save_gif),
         gif_filename=str(cfg.gif_filename),
-        log=bool(cfg.log),
-        log_dir=str(cfg.log_dir),
-        profile=bool(cfg.profile),
-        player=tuple(str(p) for p in cfg.player),
     )

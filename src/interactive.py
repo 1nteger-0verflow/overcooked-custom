@@ -1,6 +1,5 @@
 import sys
 import time
-from collections import abc
 from pathlib import Path
 
 import hydra
@@ -13,7 +12,7 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from config import InteractiveConfig, interactive_config_from_omegaconf
 from environment.overcooked import OvercookedCustom
 from environment.reward import RewardType
-from operation.controller import Controller, _OperationConfig
+from operation.controller import Controller, _UiConfig
 from visualize.visualizer import OvercookedCustomVisualizer
 
 # print時の表示設定はNumpyに依存する
@@ -21,7 +20,7 @@ np.set_printoptions(threshold=100000, linewidth=30000)
 
 
 class InteractiveOvercookedCustom:
-    def __init__(self, config: InteractiveConfig, ui: abc.Mapping[str, _OperationConfig]):
+    def __init__(self, config: InteractiveConfig, ui: _UiConfig):
         self.verbose = config.verbose
         self.visualize = config.visualize
         self.loop = config.loop
@@ -234,7 +233,7 @@ def load_config(config: DictConfig) -> DictConfig:
 def main(config: DictConfig):
     config = load_config(config)
     interactive_config = interactive_config_from_omegaconf(config)
-    ui: dict[str, _OperationConfig] = OmegaConf.to_container(config.ui, resolve=True)  # type: ignore[assignment]
+    ui: _UiConfig = OmegaConf.to_container(config.ui, resolve=True)  # type: ignore[assignment]
     interactive = InteractiveOvercookedCustom(interactive_config, ui)
     interactive.run()
 

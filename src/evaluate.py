@@ -12,17 +12,15 @@ from tqdm import tqdm
 from config import EvalConfig, evaluate_config_from_omegaconf
 from environment.overcooked import OvercookedCustom
 from environment.reward import RewardType
-from operation.controller import Controller
+from operation.controller import Controller, _OperationConfig
 from visualize.visualizer import OvercookedCustomVisualizer
 
 # モデル読み込み時にログが出力されるのを抑止
 absl.logging.set_verbosity(absl.logging.WARNING)
 
-_UiOption = dict[str, str | int] | None
-
-
 class Evaluator:
-    def __init__(self, config: EvalConfig, ui_config: dict[str, _UiOption | list[_UiOption]]):
+    # ui_config: {controller_type: [option1, option2, ...]}（listは選択肢リスト）
+    def __init__(self, config: EvalConfig, ui_config: dict[str, _OperationConfig | list[_OperationConfig]]):
         self.visualize = config.visualize
         self.loop = config.loop
         self.outdir = Path(HydraConfig.get().runtime.output_dir).parent
@@ -35,8 +33,8 @@ class Evaluator:
         if self.visualize:
             self.viz = OvercookedCustomVisualizer()
             self.viz.show()
-        # {player: 設定} のリストを作成
-        self.control_configs: list[dict[str, _UiOption]] = []
+        # {player: 設定} のリストを作成（listは選択肢リスト → 展開して control_configs にする）
+        self.control_configs: list[dict[str, _OperationConfig]] = []
         for k, vs in ui_config.items():
             if isinstance(vs, list):
                 self.control_configs += [{k: v} for v in vs]
@@ -54,7 +52,7 @@ class Evaluator:
         self.controllers = []
         for condition in combinations:
             player = sum([[p for p in c.keys()] for c in condition], [])
-            ui: dict[str, list[_UiOption]] = {}
+            ui: dict[str, list[_OperationConfig]] = {}
             for c in condition:
                 for k, vs in c.items():
                     if k in ui:
@@ -205,7 +203,7 @@ def load_config(config: DictConfig) -> DictConfig:
 def main(config: DictConfig):
     config = load_config(config)
     interactive_config = evaluate_config_from_omegaconf(config)
-    ui_config: dict[str, _UiOption | list[_UiOption]] = OmegaConf.to_container(config.ui, resolve=True)  # type: ignore[assignment]
+    ui_config: dict[str, _OperationConfig | list[_OperationConfig]] = OmegaConf.to_container(config.ui, resolve=True)  # type: ignore[assignment]
     evaluator = Evaluator(interactive_config, ui_config)
     evaluator.run()
 

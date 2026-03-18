@@ -6,13 +6,14 @@ from environment.overcooked import OvercookedCustom
 from operation.agent_controller import AgentController
 
 _OperationConfig = None | abc.Mapping[str, str | int]
+_UiConfig = abc.Mapping[str, _OperationConfig | abc.Sequence[_OperationConfig]]
 
 
 class Controller:
     def __init__(
         self,
         env: OvercookedCustom,
-        ui: abc.Mapping[str, _OperationConfig],
+        ui: _UiConfig,
         player: str | abc.Sequence[str],
         *,
         verbose: bool,
@@ -30,7 +31,7 @@ class Controller:
         self.controller_idx = 0
 
     def apply_config(
-        self, ui: abc.Mapping[str, _OperationConfig], player: str | abc.Sequence[str]
+        self, ui: _UiConfig, player: str | abc.Sequence[str]
     ) -> list[dict[str, _OperationConfig]]:
         player_list = [player] if isinstance(player, str) else player
         # レイアウトに含まれるエージェント数に対して操作方法指定が不足する場合は、最後のものを繰り返し適用

@@ -1,5 +1,3 @@
-from collections import abc
-from typing import ClassVar
 
 import imageio
 import jax
@@ -7,7 +5,7 @@ import jax.numpy as jnp
 
 from environment.actions import Actions, ActionType
 from environment.agent import Agent
-from environment.customer import CustomerLine, CustomerStatus
+from environment.customer import CustomerLine
 from environment.dynamic_object import DynamicObject
 from environment.state import Channel
 from environment.state import State as EnvState
