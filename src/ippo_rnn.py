@@ -21,7 +21,7 @@ from omegaconf import DictConfig
 from orbax.checkpoint.checkpoint_managers import preservation_policy
 from tqdm import tqdm
 
-from config import AppConfig, NetworkConfig, app_config_from_omegaconf, network_config_from_train
+from config import AppConfig, NetworkConfig, TrainConfig, app_config_from_omegaconf, network_config_from_train
 from environment.overcooked import OvercookedCustom
 from environment.reward import RewardType
 from environment.state import State as EnvState
@@ -136,6 +136,105 @@ class Transition(NamedTuple):
 _RunnerState = tuple[TrainState, EnvState, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]
 
 
+def _adjust_row_col(r: int, c: int, num_envs: int) -> tuple[int, int]:
+    for rows in range(1, num_envs):
+        for cols in range(1, int(rows * c / r) + 1):
+            if rows * cols >= num_envs:
+                return (rows, cols)
+    return (1, num_envs)
+
+
+def _create_lr_schedule(train_config: TrainConfig, num_minibatches: int) -> optax.Schedule:
+    base_learning_rate = train_config.LR
+    lr_warmup = train_config.LR_WARMUP
+    total_update_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
+    warmup_steps = int(lr_warmup * total_update_steps)
+    warmup_fn = optax.linear_schedule(init_value=0.0, end_value=base_learning_rate, transition_steps=warmup_steps)
+    cosine_steps = max(total_update_steps - warmup_steps, 1)
+    cosine_fn = optax.cosine_decay_schedule(init_value=base_learning_rate, decay_steps=cosine_steps)
+    return optax.join_schedules(schedules=[warmup_fn, cosine_fn], boundaries=[warmup_steps])
+
+
+def _create_optimizer(train_config: TrainConfig, lr_schedule: optax.Schedule) -> optax.GradientTransformation:
+    if train_config.ANNEAL_LR:
+        return optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr_schedule, eps=1e-5))
+    lr = train_config.LR
+    return optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr, eps=1e-5))
+
+
+def _create_ent_schedule(train_config: TrainConfig, num_minibatches: int) -> optax.Schedule:
+    if train_config.ANNEAL_ENT:
+        total_opt_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
+        return optax.linear_schedule(
+            init_value=train_config.ENT_COEF,
+            end_value=train_config.ENT_END,
+            transition_steps=int(total_opt_steps * train_config.ENT_COOLDOWN),
+        )
+    return optax.constant_schedule(train_config.ENT_COEF)
+
+
+def _calculate_gae(
+    rollout_buffer: Transition, last_val: jax.Array, gamma: float, gae_lambda: float
+) -> tuple[jax.Array, jax.Array]:
+    def _get_advantages(gae_and_next_value: tuple[jax.Array, jax.Array], transition: Transition):
+        gae, next_value = gae_and_next_value
+        done, value, reward = (transition.done, transition.value, transition.reward)
+        delta = reward + gamma * next_value * (1 - done) - value
+        gae = delta + gamma * gae_lambda * (1 - done) * gae
+        return (gae, value), gae
+
+    _, advantages = jax.lax.scan(
+        _get_advantages, (jnp.zeros_like(last_val), last_val), rollout_buffer, reverse=True, unroll=16
+    )
+    return advantages, advantages + rollout_buffer.value
+
+
+def _initialize_network_params(
+    network: ActorCriticRNN, rng: jax.Array, train_config: TrainConfig, env: OvercookedCustom
+) -> dict:
+    init_x = (jnp.zeros((1, train_config.NUM_ENVS, *env.obs_shape[1:])), jnp.zeros((1, train_config.NUM_ENVS)))
+    init_hstate = ScannedRNN.initialize_carry(train_config.NUM_ENVS, train_config.GRU_HIDDEN_DIM)
+    return network.init(rng, init_hstate, init_x)
+
+
+def _save_metrics(metrics: dict[str, jax.Array], seed_idx: int, model_dir: str) -> None:
+    save_dir = Path(model_dir) / f"metrics_{seed_idx}"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    keys = [
+        "update_step",
+        "eval_score",
+        "original_reward",
+        "shaped_reward",
+        "combined_reward",
+        "loss_total",
+        "loss_value",
+        "loss_actor",
+        "entropy",
+        "approx_kl",
+        "adv_std",
+        "clipfrac",
+        "grad_norm",
+        "skip_update_rate",
+        "lr",
+        "anneal_factor",
+        "ent_coef",
+        "env_step",
+    ]
+    with open(save_dir / "metrics.csv", "w") as f:
+        for key in keys:
+            out = f"{key}," + ",".join([str(x) for x in metrics[key]])
+            print(out, file=f)
+    fig = plt.figure()
+    ax = fig.subplots()
+    steps = metrics["update_step"]
+    for label in keys[1:10]:
+        ax.clear()
+        ax.plot(steps, metrics[label], label=label)
+        ax.set_title(label)
+        ax.set_xlabel("update_step")
+        fig.savefig(save_dir / f"{label}.png")
+
+
 def make_train(app_config: AppConfig):
     train_config = app_config.train
     env = OvercookedCustom(app_config.env, random_agent_position=train_config.RANDOM_AGENT_POS)
@@ -171,84 +270,12 @@ def make_train(app_config: AppConfig):
     viz_rows: int | None = None
     viz_cols: int | None = None
     if app_config.visualize:
-
-        def _adjust_row_col(r: int, c: int):
-            # 縦：横が大体r:cになるような並べ方を探索
-            for rows in range(1, train_config.NUM_ENVS):
-                for cols in range(1, int(rows * c / r) + 1):
-                    if rows * cols >= train_config.NUM_ENVS:
-                        return (rows, cols)
-            return (1, train_config.NUM_ENVS)
-
-        viz_rows, viz_cols = _adjust_row_col(app_config.aspect_row, app_config.aspect_col)
+        viz_rows, viz_cols = _adjust_row_col(app_config.aspect_row, app_config.aspect_col, train_config.NUM_ENVS)
         viz.show()
     eval_state_seq = []  # チェックポイント保存時に１周評価した結果をgif保存するため
 
-    def initialize_network_params(network: ActorCriticRNN, rng: jax.Array):
-        # ネットワークのパラメータ初期化は環境ごとに行う（エージェントの区別なし）
-        # shape: (1,NUM_ENV, height, width, channel), (1, NUM_ENVS)
-        init_x = (jnp.zeros((1, train_config.NUM_ENVS, *env.obs_shape[1:])), jnp.zeros((1, train_config.NUM_ENVS)))
-        init_hstate = ScannedRNN.initialize_carry(train_config.NUM_ENVS, train_config.GRU_HIDDEN_DIM)
-        return network.init(rng, init_hstate, init_x)
-
-    def create_learning_rate_fn():
-        base_learning_rate = train_config.LR
-
-        lr_warmup = train_config.LR_WARMUP
-        # TrainStateのstep総数はapply_gradientsを呼び出す回数
-        total_update_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
-        warmup_steps = int(lr_warmup * total_update_steps)
-
-        warmup_fn = optax.linear_schedule(init_value=0.0, end_value=base_learning_rate, transition_steps=warmup_steps)
-
-        cosine_steps = max(total_update_steps - warmup_steps, 1)
-        cosine_fn = optax.cosine_decay_schedule(init_value=base_learning_rate, decay_steps=cosine_steps)
-
-        return optax.join_schedules(schedules=[warmup_fn, cosine_fn], boundaries=[warmup_steps])
-
-    lr_schedule = create_learning_rate_fn()
-
-    def schedule():
-        # 学習率スケジューリング
-        if train_config.ANNEAL_LR:
-            tx = optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr_schedule, eps=1e-5))
-        else:
-            lr = train_config.LR
-            tx = optax.chain(optax.clip_by_global_norm(train_config.MAX_GRAD_NORM), optax.adam(lr, eps=1e-5))
-        return tx
-
-    def ent_coeff_schedule():
-        # エントロピー係数スケジューリング
-        if train_config.ANNEAL_ENT:
-            total_opt_steps = train_config.NUM_TRAINING_STEPS * train_config.NUM_UPDATE_EPOCHS * num_minibatches
-            ent_schedule = optax.linear_schedule(
-                init_value=train_config.ENT_COEF,
-                end_value=train_config.ENT_END,
-                transition_steps=int(total_opt_steps * train_config.ENT_COOLDOWN),
-            )
-        else:
-            ent_schedule = optax.constant_schedule(train_config.ENT_COEF)
-        return ent_schedule
-
-    ent_schedule = ent_coeff_schedule()
-
-    # GAE: generalized advantage estimate
-    # TODO: gamma, lambdaを引数に追加すれば純粋関数として共通化できる
-    # gamma(float): discount factor
-    # lambda(float): GAE mixing parameter
-    def _calculate_gae(rollout_buffer: Transition, last_val: jax.Array):
-        def _get_advantages(gae_and_next_value: tuple[jax.Array, jax.Array], transition: Transition):
-            gae, next_value = gae_and_next_value
-            done, value, reward = (transition.done, transition.value, transition.reward)
-            delta = reward + train_config.GAMMA * next_value * (1 - done) - value
-            gae = delta + train_config.GAMMA * train_config.GAE_LAMBDA * (1 - done) * gae
-            return (gae, value), gae
-
-        # unrollはXLAの最適化に関するパラメータで計算結果には関係しない
-        _, advantages = jax.lax.scan(
-            _get_advantages, (jnp.zeros_like(last_val), last_val), rollout_buffer, reverse=True, unroll=16
-        )
-        return advantages, advantages + rollout_buffer.value
+    lr_schedule = _create_lr_schedule(train_config, num_minibatches)
+    ent_schedule = _create_ent_schedule(train_config, num_minibatches)
 
     def save_checkpoint(train_state: TrainState, metric: dict[str, jax.Array], step: int):
         # CheckpointManager.saveのstep数はintでなければならないのでcallbackで実装(update_stepはjitのint32[]でNG)
@@ -269,43 +296,6 @@ def make_train(app_config: AppConfig):
                     for k in ["combined_reward", "shaped_reward", "original_reward"]
                 }
             )
-
-    def save_metrics(metrics: dict[str, jax.Array], seed_idx: int):
-        save_dir = Path(model_dir) / f"metrics_{seed_idx}"
-        save_dir.mkdir(parents=True, exist_ok=True)
-        keys = [
-            "update_step",
-            "eval_score",
-            "original_reward",
-            "shaped_reward",
-            "combined_reward",
-            "loss_total",
-            "loss_value",
-            "loss_actor",
-            "entropy",
-            "approx_kl",
-            "adv_std",
-            "clipfrac",
-            "grad_norm",
-            "skip_update_rate",
-            "lr",
-            "anneal_factor",
-            "ent_coef",
-            "env_step",
-        ]
-        with open(save_dir / "metrics.csv", "w") as f:
-            for key in keys:
-                out = f"{key}," + ",".join([str(x) for x in metrics[key]])
-                print(out, file=f)
-        fig = plt.figure()
-        ax = fig.subplots()
-        steps = metrics["update_step"]
-        for label in keys[1:10]:
-            ax.clear()
-            ax.plot(steps, metrics[label], label=label)
-            ax.set_title(label)
-            ax.set_xlabel("update_step")
-            fig.savefig(save_dir / f"{label}.png")
 
     def visualize_state(states: EnvState):
         if app_config.visualize:
@@ -574,7 +564,7 @@ def make_train(app_config: AppConfig):
             _, _, last_val = network.apply(train_state.params, hstate, ac_in)
             last_val = last_val.squeeze()  # (NUM_ACTORS, )
 
-            advantages, targets = _calculate_gae(rollout_buffer, last_val)
+            advantages, targets = _calculate_gae(rollout_buffer, last_val, train_config.GAMMA, train_config.GAE_LAMBDA)
             # advantages: 行動価値 - 状態価値
             # targets: 行動価値
             # advantages, targets: (TIMESTEPS, NUM_ACTORS)
@@ -644,8 +634,8 @@ def make_train(app_config: AppConfig):
         def _initialize_runner_state(rng: jax.Array):
             # ネットワークの初期化
             rng, initialize_rng = jax.random.split(rng)
-            init_network_params = initialize_network_params(network, initialize_rng)
-            tx = schedule()
+            init_network_params = _initialize_network_params(network, initialize_rng, train_config, env)
+            tx = _create_optimizer(train_config, lr_schedule)
             init_train_state = TrainState.create(apply_fn=network.apply, params=init_network_params, tx=tx)
 
             # 環境の初期化
@@ -701,8 +691,7 @@ def make_train(app_config: AppConfig):
                 rng, _rng = jax.random.split(rng)
                 ac_in = (last_obs[jnp.newaxis, :], last_done[jnp.newaxis])
                 hstate, pi, value = network.apply(params, hstate, ac_in)
-                log_probs = jnp.array([pi.log_prob(i) for i in range(env.num_actions)])
-                action = jnp.argmax(log_probs, axis=0).squeeze()
+                action = jnp.argmax(pi.probs, axis=0).squeeze()
                 obs, env_state, original_reward, shaped_rewards, reward_types, done = env.step_env(
                     last_env_state, action, _rng
                 )
@@ -745,7 +734,7 @@ def make_train(app_config: AppConfig):
         final_runner_state, metric = jax.lax.scan(
             _update_step, init_runner_state, None, train_config.NUM_TRAINING_STEPS
         )
-        jax.debug.callback(save_metrics, metric, seed_idx)
+        jax.debug.callback(_save_metrics, metric, seed_idx, model_dir)
         return {"runner_state": final_runner_state, "metrics": metric}
 
     return train

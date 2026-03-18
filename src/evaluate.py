@@ -18,6 +18,7 @@ from visualize.visualizer import OvercookedCustomVisualizer
 # モデル読み込み時にログが出力されるのを抑止
 absl.logging.set_verbosity(absl.logging.WARNING)
 
+
 class Evaluator:
     # ui_config: {controller_type: [option1, option2, ...]}（listは選択肢リスト）
     def __init__(self, config: EvalConfig, ui_config: dict[str, _OperationConfig | list[_OperationConfig]]):

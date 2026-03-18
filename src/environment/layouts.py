@@ -4,6 +4,53 @@ import jax.numpy as jnp
 
 from environment.static_object import StaticObject
 
+_CHAR_TO_STATIC_ITEM: dict[str, int] = {
+    " ": StaticObject.EMPTY,
+    "W": StaticObject.WALL,
+    "C": StaticObject.COUNTER,
+    "E": StaticObject.ENTRANCE,
+    "R": StaticObject.REGISTER,
+    "B": StaticObject.PLATE_PILE,
+    "P": StaticObject.POT,
+    "S": StaticObject.SINK,
+    "T": StaticObject.TABLE,
+    "c": StaticObject.CHAIR,
+    "G": StaticObject.GARBAGE_CAN,
+    "0": StaticObject.INGREDIENT_0,
+    "1": StaticObject.INGREDIENT_1,
+    "2": StaticObject.INGREDIENT_2,
+    "3": StaticObject.INGREDIENT_3,
+    "4": StaticObject.INGREDIENT_4,
+    "5": StaticObject.INGREDIENT_5,
+    "6": StaticObject.INGREDIENT_6,
+    "7": StaticObject.INGREDIENT_7,
+    "8": StaticObject.INGREDIENT_8,
+    "9": StaticObject.INGREDIENT_9,
+}
+
+
+def _split_rows(grid: str) -> list[str]:
+    rows = grid.split("\n")
+    if len(rows[0]) == 0:
+        rows = rows[1:]
+    if len(rows[-1]) == 0:
+        rows = rows[:-1]
+    return rows
+
+
+def _validate_grid(
+    entrance_positions: list[list[int]], register_positions: list[list[int]], num_tables: int, num_chairs: int
+) -> None:
+    if num_tables != num_chairs:
+        msg = f"Table and Chair must match. ({num_tables}Tables, {num_chairs}Chairs.)"
+        raise ValueError(msg)
+    if len(entrance_positions) > 1:
+        msg = "Multiple Entrance is not allowed."
+        raise ValueError(msg)
+    if len(register_positions) < 1:
+        msg = "Register is not included in layout."
+        raise ValueError(msg)
+
 
 @dataclass
 class Layout:
@@ -66,39 +113,10 @@ class Layout:
         if not isinstance(grid, str):
             raise ValueError("Invalid layout, must be a string layout")
 
-        rows = grid.split("\n")
-
-        if len(rows[0]) == 0:
-            rows = rows[1:]
-        if len(rows[-1]) == 0:
-            rows = rows[:-1]
+        rows = _split_rows(grid)
 
         row_lens = [len(row) for row in rows]
         static_objects = jnp.zeros((len(rows), max(row_lens)), dtype=int)
-
-        char_to_static_item = {
-            " ": StaticObject.EMPTY,
-            "W": StaticObject.WALL,
-            "C": StaticObject.COUNTER,
-            "E": StaticObject.ENTRANCE,
-            "R": StaticObject.REGISTER,
-            "B": StaticObject.PLATE_PILE,
-            "P": StaticObject.POT,
-            "S": StaticObject.SINK,
-            "T": StaticObject.TABLE,
-            "c": StaticObject.CHAIR,
-            "G": StaticObject.GARBAGE_CAN,
-            "0": StaticObject.INGREDIENT_0,
-            "1": StaticObject.INGREDIENT_1,
-            "2": StaticObject.INGREDIENT_2,
-            "3": StaticObject.INGREDIENT_3,
-            "4": StaticObject.INGREDIENT_4,
-            "5": StaticObject.INGREDIENT_5,
-            "6": StaticObject.INGREDIENT_6,
-            "7": StaticObject.INGREDIENT_7,
-            "8": StaticObject.INGREDIENT_8,
-            "9": StaticObject.INGREDIENT_9,
-        }
 
         agent_positions = []
         entrance_positions = []
@@ -111,15 +129,13 @@ class Layout:
         num_tables = 0
         num_chairs = 0
         for r, row in enumerate(rows):
-            c = 0
-            while c < len(row):
+            for c, char in enumerate(row):
                 pos = [r, c]
-                char = row[c]
 
                 if char == "A":
                     agent_positions.append(pos)
 
-                obj = char_to_static_item.get(char, StaticObject.EMPTY)
+                obj = _CHAR_TO_STATIC_ITEM.get(char, StaticObject.EMPTY)
                 if obj == StaticObject.PLATE_PILE:
                     plate_positions.append(pos)
                 elif obj == StaticObject.ENTRANCE:
@@ -138,17 +154,7 @@ class Layout:
                     ingredient_idx = obj - StaticObject.INGREDIENT_PILE_BASE
                     num_ingredients = max(num_ingredients, ingredient_idx + 1)
 
-                c += 1
-
-        if num_tables != num_chairs:
-            msg = f"Table and Chair must match. ({num_tables}Tables, {num_chairs}Chairs.)"
-            raise ValueError(msg)
-        if len(entrance_positions) > 1:
-            msg = "Multiple Entrance is not allowed."
-            raise ValueError(msg)
-        if len(register_positions) < 1:
-            msg = "Register is not included in layout."
-            raise ValueError(msg)
+        _validate_grid(entrance_positions, register_positions, num_tables, num_chairs)
         # TODO: add some sanity checks - e.g. agent must exist, surrounded by walls, etc.
 
         return Layout(

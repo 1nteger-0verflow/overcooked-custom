@@ -44,9 +44,9 @@ class IPPOModelInput(AgentController):
         obs_batch = obs[jnp.newaxis, :]
         ac_in = (obs_batch[jnp.newaxis, :], jnp.array([[0]]))
         hstate, pi, val = self.network.apply(self.params, hstate, ac_in)
-        log_probs = jnp.array([pi.log_prob(i) for i in range(self.num_actions)])
-        jax.debug.callback(self.print_decision, log_probs, val)
-        return jnp.argmax(log_probs), hstate
+        probs = pi.probs.squeeze()
+        jax.debug.callback(self.print_decision, probs, val)
+        return jnp.argmax(probs), hstate
 
     def input_observation(self, obs: jnp.ndarray):
         self.next_action, self.hstate = self.sample_action(obs[self.agent_id])
@@ -54,13 +54,12 @@ class IPPOModelInput(AgentController):
     def get_action(self):
         return self.next_action
 
-    def print_decision(self, log_probs: jnp.ndarray, val: jnp.ndarray):
+    def print_decision(self, probs: jnp.ndarray, val: jnp.ndarray):
         if self.verbose:
-            probs = jnp.exp(log_probs)
             jax.debug.print(
                 "[agent{}] action: {}, {}, value = {:.6f}",
                 self.agent_id,
-                jnp.argmax(log_probs),
-                jnp.rint(probs.squeeze() * 100),
+                jnp.argmax(probs),
+                jnp.rint(probs * 100),
                 val.squeeze(),
             )

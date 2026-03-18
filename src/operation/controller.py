@@ -11,13 +11,7 @@ _UiConfig = abc.Mapping[str, _OperationConfig | abc.Sequence[_OperationConfig]]
 
 class Controller:
     def __init__(
-        self,
-        env: OvercookedCustom,
-        ui: _UiConfig,
-        player: str | abc.Sequence[str],
-        *,
-        verbose: bool,
-        confirm: bool,
+        self, env: OvercookedCustom, ui: _UiConfig, player: str | abc.Sequence[str], *, verbose: bool, confirm: bool
     ):
         self.num_agents = env.num_agents
         controller_config = self.apply_config(ui, player)
@@ -30,9 +24,7 @@ class Controller:
             )
         self.controller_idx = 0
 
-    def apply_config(
-        self, ui: _UiConfig, player: str | abc.Sequence[str]
-    ) -> list[dict[str, _OperationConfig]]:
+    def apply_config(self, ui: _UiConfig, player: str | abc.Sequence[str]) -> list[dict[str, _OperationConfig]]:
         player_list = [player] if isinstance(player, str) else player
         # レイアウトに含まれるエージェント数に対して操作方法指定が不足する場合は、最後のものを繰り返し適用
         operation_types = player_list + [player_list[-1]] * (self.num_agents - len(player_list))
