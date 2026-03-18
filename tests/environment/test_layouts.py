@@ -1,5 +1,6 @@
 """Tests for environment.layouts."""
 
+import jax.numpy as jnp
 import pytest
 
 from environment.layouts import Layout
@@ -75,10 +76,10 @@ class TestFromStringMinimal:
 
     def test_entrance_position(self, layout):
         assert len(layout.entrance_positions) == 1
-        assert layout.entrance_positions[0] == [0, 5]
+        assert layout.entrance_positions[0].tolist() == [0, 5]
 
     def test_plate_pile_position(self, layout):
-        assert layout.plate_positions[0] == [0, 1]
+        assert layout.plate_positions[0].tolist() == [0, 1]
 
     def test_table_chair_match(self, layout):
         assert len(layout.table_positions) == len(layout.chair_positions) == 1
@@ -87,7 +88,7 @@ class TestFromStringMinimal:
         assert len(layout.register_positions) == 1
 
     def test_static_objects_dtype(self, layout):
-        assert layout.static_objects.dtype == int
+        assert jnp.issubdtype(layout.static_objects.dtype, jnp.integer)
 
     def test_wall_in_static_objects(self, layout):
         assert layout.static_objects[0, 0] == StaticObject.WALL
