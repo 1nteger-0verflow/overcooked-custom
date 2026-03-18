@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-import numpy as np
+import jax.numpy as jnp
 
 from environment.static_object import StaticObject
 
@@ -11,15 +11,15 @@ class Layout:
     agent_positions: list[tuple[int, int]]
 
     # width x height grid with static items
-    static_objects: np.ndarray
+    static_objects: jnp.ndarray
 
     num_ingredients: int
     num_customers: int
-    entrance_positions: list[tuple[int, int]]
-    plate_positions: list[tuple[int, int]]
-    table_positions: list[tuple[int, int]]
-    chair_positions: list[tuple[int, int]]
-    register_positions: list[tuple[int, int]]
+    entrance_positions: jnp.ndarray
+    plate_positions: jnp.ndarray
+    table_positions: jnp.ndarray
+    chair_positions: jnp.ndarray
+    register_positions: jnp.ndarray
 
     def __post_init__(self):
         if self.num_agents == 0:
@@ -74,7 +74,7 @@ class Layout:
             rows = rows[:-1]
 
         row_lens = [len(row) for row in rows]
-        static_objects = np.zeros((len(rows), max(row_lens)), dtype=int)
+        static_objects = jnp.zeros((len(rows), max(row_lens)), dtype=int)
 
         char_to_static_item = {
             " ": StaticObject.EMPTY,
@@ -132,7 +132,7 @@ class Layout:
                     chair_positions.append(pos)
                 elif obj == StaticObject.REGISTER:
                     register_positions.append(pos)
-                static_objects[r, c] = obj
+                static_objects = static_objects.at[r, c].set(obj)
 
                 if StaticObject.is_ingredient_pile(obj):
                     ingredient_idx = obj - StaticObject.INGREDIENT_PILE_BASE
@@ -156,9 +156,9 @@ class Layout:
             static_objects=static_objects,
             num_ingredients=num_ingredients,
             num_customers=num_tables,
-            entrance_positions=entrance_positions,
-            plate_positions=plate_positions,
-            table_positions=table_positions,
-            chair_positions=chair_positions,
-            register_positions=register_positions,
+            entrance_positions=jnp.array(entrance_positions),
+            plate_positions=jnp.array(plate_positions),
+            table_positions=jnp.array(table_positions),
+            chair_positions=jnp.array(chair_positions),
+            register_positions=jnp.array(register_positions),
         )

@@ -11,17 +11,19 @@ import flax.linen as nn
 import hydra
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import optax
 import orbax.checkpoint as ocp
-import yaml
 from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from orbax.checkpoint.checkpoint_managers import preservation_policy
 from tqdm import tqdm
 
 from config import AppConfig, NetworkConfig, app_config_from_omegaconf, network_config_from_train
 from environment.overcooked import OvercookedCustom
+from environment.reward import RewardType
 from environment.state import State as EnvState
 from visualize.visualizer import OvercookedCustomVisualizer
 
@@ -153,12 +155,19 @@ def make_train(app_config: AppConfig):
     # https://github.com/google/flax/discussions/3130
     absl.logging.set_verbosity(absl.logging.WARNING)
     # https://orbax.readthedocs.io/en/latest/guides/checkpoint/api_refactor.html#multiple-item-checkpointing
-    options = ocp.CheckpointManagerOptions(create=True, save_interval_steps=train_config.CHECKPOINT_INTERVAL_STEP)
+    options = ocp.CheckpointManagerOptions(
+        create=True,
+        save_interval_steps=train_config.CHECKPOINT_INTERVAL_STEP,
+        preservation_policy=preservation_policy.BestN(
+            n=train_config.CHECKPOINT_KEEP, get_metric_fn=lambda m: m["eval_score"], reverse=False
+        ),
+    )
     checkpoint_manager = ocp.CheckpointManager(model_dir, options=options, metadata=dataclasses.asdict(train_config))
     # 進捗表示
     if app_config.progress:
         progress_bar = tqdm(total=train_config.NUM_TRAINING_STEPS)
     # 学習中の可視化
+    viz = OvercookedCustomVisualizer()
     viz_rows: int | None = None
     viz_cols: int | None = None
     if app_config.visualize:
@@ -172,8 +181,8 @@ def make_train(app_config: AppConfig):
             return (1, train_config.NUM_ENVS)
 
         viz_rows, viz_cols = _adjust_row_col(app_config.aspect_row, app_config.aspect_col)
-        viz = OvercookedCustomVisualizer()
         viz.show()
+    eval_state_seq = []  # チェックポイント保存時に１周評価した結果をgif保存するため
 
     def initialize_network_params(network: ActorCriticRNN, rng: jax.Array):
         # ネットワークのパラメータ初期化は環境ごとに行う（エージェントの区別なし）
@@ -241,13 +250,14 @@ def make_train(app_config: AppConfig):
         )
         return advantages, advantages + rollout_buffer.value
 
-    def save_checkpoint(train_state: TrainState, _hstate: jax.Array, metric: dict[str, jax.Array], step: int):
+    def save_checkpoint(train_state: TrainState, metric: dict[str, jax.Array], step: int):
         # CheckpointManager.saveのstep数はintでなければならないのでcallbackで実装(update_stepはjitのint32[]でNG)
         checkpoint_manager.save(
             step,
             args=ocp.args.Composite(
                 params=ocp.args.StandardSave(train_state.params), obs_shape=ocp.args.StandardSave(env.obs_shape)
             ),
+            metrics=metric,
         )
         checkpoint_manager.wait_until_finished()
         # 進捗を更新
@@ -263,30 +273,39 @@ def make_train(app_config: AppConfig):
     def save_metrics(metrics: dict[str, jax.Array], seed_idx: int):
         save_dir = Path(model_dir) / f"metrics_{seed_idx}"
         save_dir.mkdir(parents=True, exist_ok=True)
+        keys = [
+            "update_step",
+            "eval_score",
+            "original_reward",
+            "shaped_reward",
+            "combined_reward",
+            "loss_total",
+            "loss_value",
+            "loss_actor",
+            "entropy",
+            "approx_kl",
+            "adv_std",
+            "clipfrac",
+            "grad_norm",
+            "skip_update_rate",
+            "lr",
+            "anneal_factor",
+            "ent_coef",
+            "env_step",
+        ]
         with open(save_dir / "metrics.csv", "w") as f:
-            for key in [
-                "original_reward",
-                "shaped_reward",
-                "anneal_factor",
-                "combined_reward",
-                "update_step",
-                "env_step",
-                "ent_coef",
-                "loss_total",
-                "loss_value",
-                "loss_actor",
-                "entropy",
-                "approx_kl",
-                "clipfrac",
-                "grad_norm",
-                "lr",
-                "skip_update_rate",
-                "adv_std",
-            ]:
+            for key in keys:
                 out = f"{key}," + ",".join([str(x) for x in metrics[key]])
                 print(out, file=f)
-        with open(save_dir / "config.yaml", "w") as f:
-            yaml.dump(dataclasses.asdict(train_config), f)
+        fig = plt.figure()
+        ax = fig.subplots()
+        steps = metrics["update_step"]
+        for label in keys[1:10]:
+            ax.clear()
+            ax.plot(steps, metrics[label], label=label)
+            ax.set_title(label)
+            ax.set_xlabel("update_step")
+            fig.savefig(save_dir / f"{label}.png")
 
     def visualize_state(states: EnvState):
         if app_config.visualize:
@@ -586,10 +605,9 @@ def make_train(app_config: AppConfig):
             #################################################
 
             # 結果の記録
-            update_step = update_step + 1
             metric = jax.tree_util.tree_map(lambda x: x.mean(), metric)
             metric["update_step"] = update_step
-            metric["env_step"] = update_step * train_config.TIMESTEPS * train_config.NUM_ENVS
+            metric["env_step"] = (update_step + 1) * train_config.TIMESTEPS * train_config.NUM_ENVS
             metric["ent_coef"] = ent_schedule(train_state.step)
             metric["loss_total"] = loss_value_mb.mean()
             metric["loss_value"] = value_loss_mb.mean()
@@ -602,8 +620,15 @@ def make_train(app_config: AppConfig):
             metric["skip_update_rate"] = skip_update_mb.mean()
             metric["adv_std"] = advantages.std()
 
+            update_step = update_step + 1
+            # モデルの評価(同じ初期状態から1周したときの報酬)
+            is_test_step = (update_step > 1) & (update_step % train_config.CHECKPOINT_INTERVAL_STEP == 0)
+            metric["eval_score"] = jax.lax.cond(
+                is_test_step, _evaluate, lambda ts, _: 0.0, train_state.params, update_step
+            )
+
             # (参考) https://github.com/luchris429/purejaxrl/issues/13#issuecomment-1823925382
-            jax.debug.callback(save_checkpoint, train_state, hstate, metric, update_step)
+            jax.debug.callback(save_checkpoint, train_state, metric, update_step)
 
             runner_state = (
                 train_state,  # 更新した方策で次stepのenv_stepを行いrollout_bufferを作成する
@@ -643,6 +668,74 @@ def make_train(app_config: AppConfig):
                 init_hstate,  # RNN隠れ状態 (NUM_ACTORS, GRU_HIDDEN_DIM)
                 init_rng,
             )
+
+        def save_eval_results(state, done, step, task_rewards):
+            eval_state_seq.append(state)
+            if done:
+                result_save_dir = Path(train_config.MODEL_DIR) / "eval"
+                result_save_dir.mkdir(parents=True, exist_ok=True)
+                viz.animate(eval_state_seq, str(result_save_dir / f"eval_{step}.gif"))
+                with open(result_save_dir / f"rewards_{step}.csv", "w") as f:
+                    for i, t in enumerate(RewardType):
+                        print(f"{t.name},{task_rewards[i]}", file=f)
+                    print(f"original,{task_rewards[-1]}", file=f)
+                eval_state_seq.clear()
+
+        def _evaluate(params, step):
+            # 評価環境の初期化
+            eval_rng = jax.random.PRNGKey(train_config.EVAL_SEED)
+            env_rng, init_rng = jax.random.split(eval_rng)
+            init_step = 0
+            init_obsv, init_env_state = env.reset(env_rng)
+            init_hstate = ScannedRNN.initialize_carry(env.num_agents, train_config.GRU_HIDDEN_DIM)
+            done = jnp.repeat(False, env.num_agents)
+            score = jnp.zeros(env.num_agents)
+            task_rewards = jnp.zeros((len(RewardType) + 1, env.num_agents))
+            init_eval_state = (init_step, init_env_state, init_obsv, init_hstate, init_rng, score, task_rewards, done)
+
+            def _continue(eval_state):
+                return ~eval_state[-1][0]
+
+            def _step_env(eval_state):
+                (env_step, last_env_state, last_obs, hstate, rng, score, task_rewards, last_done) = eval_state
+                rng, _rng = jax.random.split(rng)
+                ac_in = (last_obs[jnp.newaxis, :], last_done[jnp.newaxis])
+                hstate, pi, value = network.apply(params, hstate, ac_in)
+                log_probs = jnp.array([pi.log_prob(i) for i in range(env.num_actions)])
+                action = jnp.argmax(log_probs, axis=0).squeeze()
+                obs, env_state, original_reward, shaped_rewards, reward_types, done = env.step_env(
+                    last_env_state, action, _rng
+                )
+                done = env_step + 1 == env.max_steps
+
+                # 報酬をタスクごとに集計
+                def _accum_reward(reward_array, x):
+                    reward_type, reward, agent_idx = x
+                    cur_value = reward_array[reward_type, agent_idx]
+                    return reward_array.at[reward_type, agent_idx].set(cur_value + reward), None
+
+                task_rewards, _ = jax.lax.scan(
+                    _accum_reward, task_rewards, (reward_types, shaped_rewards, jnp.arange(env.num_agents))
+                )
+                task_rewards = task_rewards.at[-1].set(task_rewards[-1] + original_reward)
+
+                jax.debug.callback(save_eval_results, env_state, done, step, task_rewards)
+
+                return (
+                    env_step + 1,
+                    env_state,
+                    obs,
+                    hstate,
+                    rng,
+                    score + original_reward + shaped_rewards,
+                    task_rewards,
+                    jnp.repeat(done, env.num_agents),
+                )
+
+            terminal_eval_state = jax.lax.while_loop(_continue, _step_env, init_eval_state)
+            score = terminal_eval_state[5]
+
+            return jnp.sum(score)
 
         ###################################################
         # train の処理本体

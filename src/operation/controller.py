@@ -47,6 +47,11 @@ class Controller:
         interfaces = [{op: filled_settings[op].pop(0)} for op in operation_types]
         return interfaces
 
+    def reset(self):
+        # 内部で状態を持っているコントローラーを初期化する
+        for controller in self.controllers:
+            controller.reset()
+
     def input_observation(self, obs: jnp.ndarray):
         # stepごとの初期化
         self.controller_idx = 0

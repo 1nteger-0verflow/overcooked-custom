@@ -10,12 +10,13 @@ visualize: false
 # 可視化時の環境の並べ方(縦横比)
 aspect_row: 1
 aspect_col: 2
+description: ""
 
 hydra:
   run:
-    dir: checkpoints/${hydra.job.name}/${now:%Y%m%d}/${now:%H%M}/config/
+    dir: checkpoints/${hydra.job.name}/${now:%Y%m%d}/${now:%H%M}${description}/config/
   sweep:
-    dir: checkpoints/${hydra.job.name}/${now:%Y%m%d}/${now:%H%M}_multirun
+    dir: checkpoints/${hydra.job.name}/${now:%Y%m%d}/${now:%H%M}${description}_multirun
     subdir: ${hydra.job.id}_${hydra.job.override_dirname}/config
   job:
     config:
@@ -25,6 +26,7 @@ hydra:
         # multirunのときに出力ディレクトリ名に含めない設定値
         # yamlファイルの置き換えでenv/reward=aaa.yamlなどとすると出力先が深くなってしまう
         # 学習に直接関係しないパラメータも除外する
+        # 学習PCのスペックに依存するパラメータも除外する
         exclude_keys:
           - env/menu
           - env/parameter
@@ -33,3 +35,6 @@ hydra:
           - train.CHECKPOINT_SAVE_DIR
           - train.CHECKPOINT_INTERVAL_STEP
           - train.NUM_TRAINING_STEPS
+          - train.NUM_ENVS
+          - train.MINIBATCH_SIZE
+          - description

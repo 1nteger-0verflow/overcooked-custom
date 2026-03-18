@@ -26,16 +26,13 @@ class InteractiveOvercookedCustom:
         self.visualize = config.visualize
         self.loop = config.loop
         self.save_gif = config.save_gif
-        self.gif_filename = config.gif_filename
+        self.gif_filename = Path(config.gif_filename)
         self.state_seq = []
-        if self.save_gif:
-            self.loop = False
         self.profile = config.profile
         self.interrupt_obs = False
         self.log = config.log
         self.log_dir = Path(config.log_dir)
-        if self.loop:
-            self.iter_num = 0
+        self.iter_num = 0
 
         self.key = jax.random.wrap_key_data(jnp.array(config.seed, dtype=jnp.uint32))
         self.env = OvercookedCustom(config.env, random_agent_position=config.random_agent_position)
@@ -117,6 +114,7 @@ class InteractiveOvercookedCustom:
         if self.verbose:
             print("==== layout ====")
             print(self.state.grid[:, :, 0])
+        self.controller.reset()
         self.controller.input_observation(init_obs)
         if self.save_gif:
             self.state_seq.append(self.state)
@@ -187,19 +185,20 @@ class InteractiveOvercookedCustom:
                         pass
             self.interrupt_obs = False
 
-        if done and self.loop:
+        if done:
             self.display_scores()
-            self.save_log(self.iter_num)
-            self.iter_num += 1
-            self._reset()
-        elif done and not self.loop:
-            self.display_scores()
+            self.save_log()
             if self.save_gif:
-                print(f"saving animation to {self.gif_filename} ...", end="", flush=True)
-                self.viz.animate(self.state_seq, self.gif_filename)
+                filename = self.gif_filename.with_stem(self.gif_filename.stem + f"_{self.iter_num}")
+                print(f"saving animation to {filename} ...", end="", flush=True)
+                self.viz.animate(self.state_seq, str(filename))
+                self.state_seq.clear()
                 print("done.")
-            self.save_log(None)
-            sys.exit()
+            self.iter_num += 1
+            if self.iter_num < self.loop:
+                self._reset()
+            else:
+                sys.exit()
         else:
             self._redraw()
 
@@ -209,12 +208,12 @@ class InteractiveOvercookedCustom:
         for t in RewardType:
             print(f"  {t.name: <15}: {self.task_rewards.get(t.name)}")
 
-    def save_log(self, iter_num: int | None):
+    def save_log(self):
         if self.log:
             actions = jnp.array(self.action_log, dtype=jnp.int8)
             init_key = jax.random.key_data(self.init_key)
             self.log_dir.mkdir(exist_ok=True, parents=True)
-            filename = f"action_log_iter{iter_num}.npz" if iter_num is not None else "action_log.npz"
+            filename = f"action_log_iter{self.iter_num}.npz"
             log_file = self.log_dir / filename
             jnp.savez(log_file, actions=actions, init_key=init_key)
 

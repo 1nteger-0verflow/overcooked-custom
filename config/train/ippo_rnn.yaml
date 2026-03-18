@@ -30,5 +30,10 @@ ENT_COOLDOWN: 0.9
 # エージェントの初期位置を元の位置から移動可能な範囲でランダムにする
 RANDOM_AGENT_POS: true
 
+# 評価に使う環境用のシード
+EVAL_SEED: 42
+
 # チェックポイントの保存間隔
 CHECKPOINT_INTERVAL_STEP: 500
+# チェックポイントの最大保存数
+CHECKPOINT_KEEP: 5

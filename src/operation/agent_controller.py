@@ -21,7 +21,6 @@ class AgentController:
         return create_controller(operation, agent_id, num_actions, verbose=verbose, confirm=confirm)
 
     def input_key(self, key: str) -> bool:
-        print(f"AgentController: {key}")  # noqa: T201
         # key入力を受け付けたかどうかを返す。
         return False
 
@@ -33,6 +32,10 @@ class AgentController:
     def is_done(self) -> bool:
         # 必要な入力が終わったかどうか(keyboard/no_confirm -> 1回入力するとTrue, keyboard -> False)
         return True
+
+    def reset(self):
+        # コントロールの内部状態を初期化する
+        pass
 
     def input_observation(self, obs: jnp.ndarray):
         # モデルの場合観測をもとに次の行動を決定する

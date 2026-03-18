@@ -35,20 +35,21 @@ class IPPOModelInput(AgentController):
         abs_params = self.network.init(jax.random.key(0), hstate, init_x)
         restored = mngr.restore(step, args=ocp.args.Composite(params=ocp.args.StandardRestore(abs_params)))
         self.params = restored["params"]
-        self.hstate = ScannedRNN.initialize_carry(1, network_config.GRU_HIDDEN_DIM)
+        self.hidden_dim = network_config.GRU_HIDDEN_DIM
+        self.hstate = ScannedRNN.initialize_carry(1, self.hidden_dim)
         print(f"[Agent {agent_id}] IPPO agent model is loaded from {chkpt_dir}/{step}.")
 
     @jax.jit(static_argnums=(0,))
-    def sample_action(self, obs: jnp.ndarray):
+    def sample_action(self, obs: jnp.ndarray, hstate: jnp.ndarray):
         obs_batch = obs[jnp.newaxis, :]
         ac_in = (obs_batch[jnp.newaxis, :], jnp.array([[0]]))
-        self.hstate, pi, val = self.network.apply(self.params, self.hstate[jnp.newaxis, :], ac_in)
+        hstate, pi, val = self.network.apply(self.params, hstate, ac_in)
         log_probs = jnp.array([pi.log_prob(i) for i in range(self.num_actions)])
         jax.debug.callback(self.print_decision, log_probs, val)
-        return jnp.argmax(log_probs)
+        return jnp.argmax(log_probs), hstate
 
     def input_observation(self, obs: jnp.ndarray):
-        self.next_action = self.sample_action(obs[self.agent_id])
+        self.next_action, self.hstate = self.sample_action(obs[self.agent_id])
 
     def get_action(self):
         return self.next_action

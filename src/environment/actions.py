@@ -21,7 +21,7 @@ class Actions(IntEnum):
     # InteractionするアクションはINTERACT以降にする（大小で判定するため）
     INTERACT = 5
     PICK_PLACE_BASE = INTERACT + 1
-    # REACT = 6  # 現状未使用だが、エージェントの状態がbusyのとき自動的にこれを選ぶようにし、複数stepにわたって拘束されるようにする
+    # REACT = 6  # TODO: 現状未使用だが、エージェントの状態がbusyのとき自動的にこれを選ぶようにし、複数stepにわたって拘束されるようにする
     # PICK_PLACE_BASE = REACT + 1
 
     @staticmethod

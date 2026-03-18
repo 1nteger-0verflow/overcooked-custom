@@ -22,6 +22,11 @@ class Agent(PyTreeNode):
     def num_agents(self):
         return self.pos.shape[0]
 
+    @property
+    def num_actions(self):
+        # エージェントごとに持てる個数が異なる設定が可能
+        return self.capacity + Actions.PICK_PLACE_BASE
+
     # interactionするためにエージェントの前の位置を取得するためのメソッド
     def get_fwd_pos(self):
         return self.pos + self.dir

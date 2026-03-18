@@ -118,7 +118,7 @@ def progress_cooking(state: State, parameter: EnvParameterConfig, key: Key[Array
             # volumeを指定範囲内の倍率でばらつかせる
             range_min, range_max = parameter.volume_range
             volume_coeff = jax.random.uniform(key, (), minval=range_min, maxval=range_max)
-            volume = jnp.floor(volume * volume_coeff).astype(int)
+            volume = jnp.clip(jnp.floor(volume * volume_coeff), min=1).astype(int)
             new_ingredients = jax.lax.cond(
                 finished_cooking,
                 lambda: DynamicObject.set_count(cell[Channel.obj] | DynamicObject.COOKED, volume),
@@ -146,9 +146,7 @@ def progress_eating(state: State) -> State:
         volumes = DynamicObject.get_count(food)
         decreased_volumes, new_time = jax.lax.switch(
             jnp.argmax(
-                jnp.array(
-                    [is_eating * jnp.all(jnp.max(volumes) == 1), is_eating * jnp.any(jnp.max(volumes) > 1), ~is_eating]
-                )
+                jnp.array([is_eating * (jnp.max(volumes) == 1), is_eating * (jnp.max(volumes) > 1), ~is_eating])
             ),
             [
                 lambda: (jnp.zeros_like(food), state.time),

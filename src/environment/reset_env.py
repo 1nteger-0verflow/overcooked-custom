@@ -168,7 +168,7 @@ class Initializer:
                 grid = grid.at[y, x, Channel.obj].set(plate_pile)
         # 入口を配置
         waiting_line = CustomerLine(
-            entrance_pos=jnp.array(self.layout.entrance_positions),
+            entrance_pos=self.layout.entrance_positions,
             line_length=jnp.array(0, dtype=jnp.int32),
             queued_time=jnp.zeros((self.wait_line_max,), dtype=jnp.int32),
             reserved_line_length=jnp.array(0, dtype=jnp.int32),
@@ -178,8 +178,8 @@ class Initializer:
 
         # 客席を配置
         customers = Customer(
-            table_pos=jnp.array(self.layout.table_positions),
-            chair_pos=jnp.array(self.layout.chair_positions),
+            table_pos=self.layout.table_positions,
+            chair_pos=self.layout.chair_positions,
             used=jnp.zeros((self.num_customers,), dtype=int),
             status=jnp.full((self.num_customers,), CustomerStatus.empty, dtype=jnp.int32),
             time=jnp.zeros((self.num_customers,), dtype=int),
@@ -189,7 +189,7 @@ class Initializer:
 
         # 会計待ちの列
         register = RegisterLine(
-            register_pos=jnp.array(self.layout.register_positions),
+            register_pos=self.layout.register_positions,
             queued_time=jnp.array(0, dtype=jnp.int32),
             service_time=jnp.array(0, dtype=jnp.int32),
         )

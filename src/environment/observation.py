@@ -156,7 +156,7 @@ class Observer:
 
     def observe_context(self, state: State):
         # 現在時刻、開店・閉店時刻、次の予約時刻までの時間（予約客が全員来店後は無効値として-1を設定）
-        entrance_pos = jnp.array(self.layout.entrance_positions).squeeze()
+        entrance_pos = self.layout.entrance_positions.squeeze()
         reservations = jnp.array(self.schedule.reservation)
         reservation_remaining = state.time <= jnp.max(reservations)
 
@@ -171,7 +171,7 @@ class Observer:
 
     def observe_line(self, state: State):
         # 客の待機列の観測(入口のgridに列の長さを設定する)
-        entrance_pos = jnp.array(self.layout.entrance_positions).squeeze()
+        entrance_pos = self.layout.entrance_positions.squeeze()
         length_info = jnp.array([state.line.reserved_line_length, state.line.line_length])
         return jnp.zeros((self.height, self.width, length_info.size)).at[*entrance_pos].set(length_info)
 
@@ -327,6 +327,9 @@ class Observer:
                 axis=-1,
             )
             view_area = state.agents.grid_observed_step[agent_id] == state.time - 1
+            # entrance_posとtable_posは常に観測可能にする
+            view_area = view_area.at[*self.layout.entrance_positions.T].set(True)
+            view_area = view_area.at[*self.layout.table_positions.T].set(True)
             mask = jnp.stack([view_area] * raw_obs.shape[-1], axis=-1)
             # 視野範囲内に観測情報を制限
             return jax.lax.cond(

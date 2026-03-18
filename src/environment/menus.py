@@ -1,3 +1,5 @@
+from collections import abc
+
 import jax
 import jax.numpy as jnp
 from flax.struct import PyTreeNode, dataclass
@@ -28,7 +30,7 @@ class MenuList(PyTreeNode):
         return self.menu[menu_index]
 
     @staticmethod
-    def load(menus: list[MenuItemConfig]):
+    def load(menus: abc.Sequence[MenuItemConfig]):
         menu = jnp.array([config.recipe for config in menus], dtype=int)
         duration = jnp.array([config.duration for config in menus], dtype=int)
         volume = jnp.array([config.volume for config in menus], dtype=int)

@@ -1,15 +1,9 @@
 import dataclasses
 from dataclasses import dataclass, field
+from typing import Any
 
 from flax import struct
 from omegaconf import DictConfig
-
-
-@dataclass(frozen=True)
-class CustomerConfig:
-    patience_mean: float = 10.0
-    patience_std: float = 4.0
-    digestion_speed: int = 1
 
 
 @dataclass(frozen=True)
@@ -31,32 +25,71 @@ class EnvParameterConfig:
 
 @dataclass(frozen=True)
 class OriginalRewardConfig:
-    finish_payment: float = 20.0
+    finish_payment: float = 20.0  # 会計を完了し、客が退店したら報酬
 
 
+# 細かいステップごとに得られる報酬
 @dataclass(frozen=True)
 class ShapedRewardConfig:
-    invite_customer: float = 3.0
-    refuse_customer: float = 0.1
-    take_order: float = 3.0
-    deliver_food: float = 3.0
-    retrieve_plate: float = 3.0
-    clean_table: float = 3.0
-    soak_plate: float = 3.0
-    wash_plate: float = 3.0
-    process_payment: float = 3.0
-    clean_dirt: float = 3.0
-    placement_in_pot: float = 3.0
-    pot_start_cooking: float = 3.0
-    dish_pickup: float = 3.0
+    # interaction できる場合は常に推奨される
+    # 実行すると状態が遷移し、繰り返し報酬を得ることはできない
+    invite_customer: float = 3.0  # 客を案内
+    refuse_customer: float = 0.001  # 満席時、客を帰す
+    take_order: float = 3.0  # 注文を取る
+    wash_plate: float = 3.0  # 皿を洗う
+    process_payment: float = 3.0  # 会計処理をする(未完)
+    clean_dirt: float = 3.0  # 汚れを掃除する
+    # pick_place 注文内容に応じて推奨・非推奨
+    ## pick
+    pickup_ingredient_from_pile: float = 0.5  # 食材をpileから取り出す
+    pickup_ingredient_from_counter: float = 0.0  # 食材をカウンターから取り上げる
+    pickup_new_plate_from_pile: float = 0.5  # 皿をpileから取り出す
+    pickup_new_plate_from_counter: float = 0.0  # 皿をカウンターから取り上げる
+    plate_dish: float = 6.0  # 皿に料理を盛り付ける
+    pickup_dish_from_counter: float = 0.0  # 料理をカウンターから取り上げる
+    pickup_used_plate_from_table: float = 3.0  # 使用済み皿をテーブルから下げる
+    clean_table: float = 3.0  # テーブルを片付ける(客が退店済み)
+    pickup_used_plate_from_counter: float = 0.0  # 使用済み皿をカウンターから取り上げる
+    ## place
+    ### place ingredient
+    placement_in_pot: float = 2.0  # 鍋に食材を入れる
+    pot_start_cooking: float = 3.0  # 注文されたメニューの調理を開始する
+    place_ingredient_on_counter: float = -0.2  # 食材をカウンターに置く
+    dispose_ingredient: float = -2.0  # 食材をゴミ箱に捨てる
+    ### place food
+    deliver_food: float = 8.0  # 料理を提供する
+    place_food_on_counter: float = -0.2  # 料理をカウンターに置く
+    dispose_food: float = -10.0  # 料理をゴミ箱に捨てる
+    ### place plate
+    place_new_plate_on_counter: float = -0.2  # 新しい皿をカウンターに置く
+    place_used_plate_on_counter: float = -0.2  # 使用済み皿をカウンターに置く
+    soak_plate: float = 3.0  # 使用済み皿をシンクに置く
 
 
+# 抑止したい行動をとったときのペナルティ、Overcookedの処理でマイナス符号にする
 @dataclass(frozen=True)
 class PenaltyConfig:
-    ineffective_interaction: float = 0.0
-    erroneous_delivery: float = 1.0
-    step_cost: float = 0.0
-    block_cost: float = 0.0
+    ineffective_interaction: float = 0.001  # 無効なinteractionを行った
+    ineffective_pickup: float = 0.001  # 無効なpickupを行った
+    ineffective_placement: float = 0.001  # 無効なplacementを行った
+    erroneous_cooking: float = 1.0  # 注文されていない料理を調理した(事前に調理しておく場合もペナルティになる)
+    erroneous_delivery: float = 1.0  # 注文と違う料理を提供しようとした
+    step_cost: float = 0.0  # 移動にかかるコスト(無駄な動きを抑制)
+    block_cost: float = 0.01  # 位置・向きの変わらない移動をした(壁押し)
+    # place_cost: float
+    # dispose_cost: float
+
+
+# 時間経過による報酬割引の設定
+@dataclass
+class DiscountConfig:
+    decline_deliver_reward: bool = True  # 時間経過により料理提供の報酬を割り引くか
+    deliver_ramp_step: int = 10  # 料理提供時の報酬が割引なしで与えられる注文からのステップ数
+    deliver_limit_step: int = 100  # 料理提供の報酬が下がりきるステップ数(>deliver_ramp_step)
+    deliver_discount_rate: float = 0.8  # 報酬割引率の下限
+
+    def __post_init__(self):
+        assert self.deliver_ramp_step < self.deliver_limit_step
 
 
 @dataclass(frozen=True)
@@ -64,29 +97,29 @@ class RewardConfig:
     original_reward: OriginalRewardConfig = field(default_factory=OriginalRewardConfig)
     shaped_reward: ShapedRewardConfig = field(default_factory=ShapedRewardConfig)
     penalty: PenaltyConfig = field(default_factory=PenaltyConfig)
+    discount: DiscountConfig = field(default_factory=DiscountConfig)
 
 
 @dataclass(frozen=True)
 class ScheduleConfig:
-    opening_time: int = 10
-    closing_time: int = 720
-    terminal_time: int = 780
-    reservation: tuple[int, ...] = field(default_factory=lambda: (1, 10, 30))
+    opening_time: int = 10  # 開店時間
+    closing_time: int = 720  # 閉店時間
+    terminal_time: int = 780  # 終了時間
+    reservation: tuple[int, ...] = field(default_factory=lambda: (1, 10, 30))  # 予約客の来店時間(ステップ数で指定)
     congestion_rates: tuple[tuple[int, int], ...] = field(
         default_factory=lambda: ((0, 0), (10, 10), (20, 100), (25, 20), (30, 50), (35, 0), (50, 20))
-    )
+    )  # 一般客の来店率の時間変化 [変更ステップ数, 来店率(%)]のリスト
 
 
 @dataclass(frozen=True)
 class MenuItemConfig:
-    recipe: tuple[int, ...] = field(default_factory=tuple)
-    duration: int = 0
-    volume: int = 0
+    recipe: tuple[int, ...] = field(default_factory=tuple)  # 必要な食材番号のリスト
+    duration: int = 0  # 調理にかかる時間
+    volume: int = 0  # 提供から食べ終わるまでのステップ数
 
 
 @dataclass(frozen=True)
 class EnvConfig:
-    customer: CustomerConfig = field(default_factory=CustomerConfig)
     parameter: EnvParameterConfig = field(default_factory=EnvParameterConfig)
     reward: RewardConfig = field(default_factory=RewardConfig)
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
@@ -103,17 +136,29 @@ class NetworkConfig:
 
 @dataclass(frozen=True)
 class TrainConfig:
+    # progress: bool
+    # visualize: bool
+    # aspect_row: int
+    # aspect_col: int
+    # viz_rows: int
+    # viz_cols: int
+    # NUM_ACTORS: int
+    # NUM_MINIBATCHES: int
+    MODEL_DIR: str
+    ## ABOVE: ?
     NUM_SEEDS: int = 1
     SEED: int = 0
     LR: float = 0.00025
     ANNEAL_LR: bool = True
-    LR_WARMUP: float = 0.0
-    NUM_ENVS: int = 32
-    MINIBATCH_SIZE: int = 16
-    NUM_UPDATE_EPOCHS: int = 4
-    NUM_TRAINING_STEPS: int = 10000
-    REW_SHAPING_HORIZON: int = 60000
-    TIMESTEPS: int = 32
+    LR_WARMUP: float = 0.0  # NUM_LEARNING_STEPSに対するウォームアップの割合
+    NUM_ENVS: int = 32  # 並列実行する環境の個数(16GB: 32*2agents)
+    MINIBATCH_SIZE: int = 16  # NUM_ENVS*num_agentsを割り切る数
+    NUM_UPDATE_EPOCHS: int = 4  # minibatch単位の学習１周を繰り返す回数
+    NUM_TRAINING_STEPS: int = 10000  # 行動->学習(UPDATE_EPOCHS回) を1単位として何回繰り返すか
+    REW_SHAPING_HORIZON: int = (
+        60000  # LEARNING_STEPS に応じてshaped_rewardの重みを減らすしていき、HORIZON以降は提供時のrewardのみになる
+    )
+    TIMESTEPS: int = 32  # 学習1ステップのために環境の更新を行いデータを収集するステップ数(unroll=16の倍数にするとよい)
     FC_DIM_SIZE: int = 128
     GRU_HIDDEN_DIM: int = 128
     ACTIVATION: str = "relu"
@@ -126,9 +171,10 @@ class TrainConfig:
     ENT_COEF: float = 0.01
     ENT_END: float = 0.0001
     ENT_COOLDOWN: float = 0.9
-    RANDOM_AGENT_POS: bool = True
-    CHECKPOINT_INTERVAL_STEP: int = 500
-    CHECKPOINT_SAVE_DIR: str = ""
+    RANDOM_AGENT_POS: bool = True  # エージェントの初期位置を元の位置から移動可能な範囲でランダムにする
+    EVAL_SEED: int = 42  # 評価に使う環境用のシード
+    CHECKPOINT_INTERVAL_STEP: int = 500  # チェックポイントの保存間隔
+    CHECKPOINT_KEEP: int = 5  # チェックポイントの最大保存数
 
 
 @dataclass(frozen=True)
@@ -170,16 +216,41 @@ class InteractiveConfig:
     player: tuple[str, ...] = field(default_factory=lambda: ("keyboard",))
 
 
+@dataclass
+class PlayConfig:
+    env: EnvConfig
+    ui: dict[str, Any]
+    player: str | list[str]
+    verbose: bool
+    seed: list[int]
+    random_agent_position: bool
+    confirm: bool
+    visualize: bool
+    loop: int
+    save_gif: bool
+    gif_filename: str
+    log: bool
+    log_dir: str
+    profile: bool
+
+
+@dataclass(frozen=True)
+class EvalConfig:
+    env: EnvConfig
+    # ui: dict[str, Any]
+    seed: list[int]
+    random_agent_position: bool
+    visualize: bool
+    loop: int
+    save_gif: bool
+    gif_filename: str
+
+
 def env_config_from_omegaconf(cfg: DictConfig) -> EnvConfig:
     p = cfg.parameter
     s = cfg.schedule
     r = cfg.reward
     return EnvConfig(
-        customer=CustomerConfig(
-            patience_mean=float(cfg.customer.patience_mean),
-            patience_std=float(cfg.customer.patience_std),
-            digestion_speed=int(cfg.customer.digestion_speed),
-        ),
         parameter=EnvParameterConfig(
             forward_view_size=tuple(int(x) for x in p.forward_view_size),
             side_view_size=tuple(int(x) for x in p.side_view_size),
@@ -201,22 +272,43 @@ def env_config_from_omegaconf(cfg: DictConfig) -> EnvConfig:
                 invite_customer=float(r.shaped_reward.invite_customer),
                 refuse_customer=float(r.shaped_reward.refuse_customer),
                 take_order=float(r.shaped_reward.take_order),
-                deliver_food=float(r.shaped_reward.deliver_food),
-                retrieve_plate=float(r.shaped_reward.retrieve_plate),
-                clean_table=float(r.shaped_reward.clean_table),
-                soak_plate=float(r.shaped_reward.soak_plate),
                 wash_plate=float(r.shaped_reward.wash_plate),
                 process_payment=float(r.shaped_reward.process_payment),
                 clean_dirt=float(r.shaped_reward.clean_dirt),
+                pickup_ingredient_from_pile=float(r.shaped_reward.pickup_ingredient_from_pile),
+                pickup_ingredient_from_counter=float(r.shaped_reward.pickup_ingredient_from_counter),
+                pickup_new_plate_from_pile=float(r.shaped_reward.pickup_new_plate_from_pile),
+                pickup_new_plate_from_counter=float(r.shaped_reward.pickup_new_plate_from_counter),
+                plate_dish=float(r.shaped_reward.plate_dish),
+                pickup_dish_from_counter=float(r.shaped_reward.pickup_dish_from_counter),
+                pickup_used_plate_from_table=float(r.shaped_reward.pickup_used_plate_from_table),
+                clean_table=float(r.shaped_reward.clean_table),
+                pickup_used_plate_from_counter=float(r.shaped_reward.pickup_used_plate_from_counter),
                 placement_in_pot=float(r.shaped_reward.placement_in_pot),
                 pot_start_cooking=float(r.shaped_reward.pot_start_cooking),
-                dish_pickup=float(r.shaped_reward.dish_pickup),
+                place_ingredient_on_counter=float(r.shaped_reward.place_ingredient_on_counter),
+                dispose_ingredient=float(r.shaped_reward.dispose_ingredient),
+                deliver_food=float(r.shaped_reward.deliver_food),
+                place_food_on_counter=float(r.shaped_reward.place_food_on_counter),
+                dispose_food=float(r.shaped_reward.dispose_food),
+                place_new_plate_on_counter=float(r.shaped_reward.place_new_plate_on_counter),
+                place_used_plate_on_counter=float(r.shaped_reward.place_used_plate_on_counter),
+                soak_plate=float(r.shaped_reward.soak_plate),
             ),
             penalty=PenaltyConfig(
                 ineffective_interaction=float(r.penalty.ineffective_interaction),
+                ineffective_pickup=float(r.penalty.ineffective_pickup),
+                ineffective_placement=float(r.penalty.ineffective_placement),
+                erroneous_cooking=float(r.penalty.erroneous_cooking),
                 erroneous_delivery=float(r.penalty.erroneous_delivery),
                 step_cost=float(r.penalty.step_cost),
                 block_cost=float(r.penalty.block_cost),
+            ),
+            discount=DiscountConfig(
+                decline_deliver_reward=bool(r.discount.decline_deliver_reward),
+                deliver_ramp_step=int(r.discount.deliver_ramp_step),
+                deliver_limit_step=int(r.discount.deliver_limit_step),
+                deliver_discount_rate=float(r.discount.deliver_discount_rate),
             ),
         ),
         schedule=ScheduleConfig(
@@ -261,6 +353,24 @@ def app_config_from_omegaconf(cfg: DictConfig) -> AppConfig:
 
 def interactive_config_from_omegaconf(cfg: DictConfig) -> InteractiveConfig:
     return InteractiveConfig(
+        env=env_config_from_omegaconf(cfg.env),
+        verbose=bool(cfg.verbose),
+        seed=tuple(int(x) for x in cfg.seed),
+        random_agent_position=bool(cfg.random_agent_position),
+        confirm=bool(cfg.confirm),
+        visualize=bool(cfg.visualize),
+        loop=bool(cfg.loop),
+        save_gif=bool(cfg.save_gif),
+        gif_filename=str(cfg.gif_filename),
+        log=bool(cfg.log),
+        log_dir=str(cfg.log_dir),
+        profile=bool(cfg.profile),
+        player=tuple(str(p) for p in cfg.player),
+    )
+
+
+def evaluate_config_from_omegaconf(cfg: DictConfig):
+    return EvalConfig(
         env=env_config_from_omegaconf(cfg.env),
         verbose=bool(cfg.verbose),
         seed=tuple(int(x) for x in cfg.seed),

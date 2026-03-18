@@ -1,21 +1,49 @@
 original_reward:
   finish_payment: 20.0 # 会計を完了し、客が退店したら報酬
 shaped_reward: # 細かいステップごとに得られる報酬
+  # interaction: できる場合は常に推奨される
+  #              実行すると状態が遷移し、繰り返し報酬を得ることはできない
   invite_customer: 3.0 # 客を案内
-  refuse_customer: 0.1 # 満席時、客を帰す
+  refuse_customer: 0.001 # 満席時、客を帰す
   take_order: 3.0 # 注文を取る
-  deliver_food: 3.0 # 料理を提供する
-  retrieve_plate: 3.0 # 皿を下げる
-  clean_table: 3.0 # テーブルを片付ける
-  soak_plate: 3.0 # 皿をシンクに置く
   wash_plate: 3.0 # 皿を洗う
   process_payment: 3.0 # 会計処理をする(未完)
-  clean_dirt: 3.0 # 汚れを掃除する
-  placement_in_pot: 3.0 # 鍋に食材を入れる
-  pot_start_cooking: 3.0 # 調理を開始する
-  dish_pickup: 3.0 # 皿に料理を盛り付ける
+  clean_dirt: 1.0 # 汚れを掃除する
+  # pick_place: 注文内容に応じて推奨・非推奨
+  ## pick
+  pickup_ingredient_from_pile: 0.5 # 食材をpileから取り出す
+  pickup_ingredient_from_counter: 0.0 # 食材をカウンターから取り上げる
+  pickup_new_plate_from_pile: 0.5 # 皿をpileから取り出す
+  pickup_new_plate_from_counter: 0.0 # 皿をカウンターから取り上げる
+  plate_dish: 6.0 # 皿に料理を盛り付ける
+  pickup_dish_from_counter: 0.0 # 料理をカウンターから取り上げる
+  pickup_used_plate_from_table: 3.0 # 使用済み皿をテーブルから下げる
+  clean_table: 3.0 # テーブルを片付ける(客が退店済み)
+  pickup_used_plate_from_counter: 0.0 # 使用済み皿をカウンターから取り上げる
+  ## place
+  ### place ingredient
+  placement_in_pot: 2.0 # 鍋に食材を入れる
+  pot_start_cooking: 3.0 # 注文されたメニューの調理を開始する
+  place_ingredient_on_counter: -0.2 # 食材をカウンターに置く
+  dispose_ingredient: -2.0 # 食材をゴミ箱に捨てる
+  ### place food
+  deliver_food: 8.0 # 料理を提供する
+  place_food_on_counter: -0.2 # 料理をカウンターに置く
+  dispose_food: -10.0 # 料理をゴミ箱に捨てる
+  ### place plate
+  place_new_plate_on_counter: -0.2 # 新しい皿をカウンターに置く
+  place_used_plate_on_counter: -0.2 # 使用済み皿をカウンターに置く
+  soak_plate: 3.0 # 使用済み皿をシンクに置く
 penalty: # 抑止したい行動をとったときのペナルティ、Overcookedの処理でマイナス符号にする
-  ineffective_interaction: 0.0 # 無効なinteractionを行った
+  ineffective_interaction: 0.001 # 無効なinteractionを行った
+  ineffective_pickup: 0.001 # 無効なpickupを行った
+  ineffective_placement: 0.001 # 無効なplacementを行った
+  erroneous_cooking: 1.0 # 注文されていない料理を調理した(事前に調理しておく場合もペナルティになる)
   erroneous_delivery: 1.0 # 注文と違う料理を提供しようとした
   step_cost: 0.0 # 移動にかかるコスト(無駄な動きを抑制)
-  block_cost: 0.0 # 位置・向きの変わらない移動をした(壁押し)
+  block_cost: 0.01 # 位置・向きの変わらない移動をした(壁押し)
+discount: # 時間経過による報酬割引の設定
+  decline_deliver_reward: true # 時間経過により料理提供の報酬を割り引くか
+  deliver_ramp_step: 10 # 料理提供時の報酬が割引なしで与えられる注文からのステップ数
+  deliver_limit_step: 100 # 料理提供の報酬が下がりきるステップ数(>deliver_ramp_step)
+  deliver_discount_rate: 0.8 # 報酬割引率の下限

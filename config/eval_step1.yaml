@@ -2,6 +2,7 @@ defaults:
   - layout: layouts
   - env: step1
   - ui: default
+  - override env/reward: eval
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
   - _self_
@@ -11,12 +12,12 @@ player: # エージェントごとの操作方法
   - keyboard
   - keyboard
 
-verbose: true # 各ステップの詳細表示の有無
+verbose: false # 各ステップの詳細表示の有無
 seed: [0, 0] # 乱数シード
 random_agent_position: false # リセットするときにエージェントの位置をランダムに変更
 confirm: false # 手動操作時の確認有無
 visualize: true # 可視化の有無
-loop: false # 終了時刻に達したあとループするか
+loop: 1 # 終了時刻に達したあと初期化してループする回数
 
 save_gif: false # 終了時刻まで操作した後、gifファイルにアニメーションとして保存
 gif_filename: OCcustom_${now:%Y%m%d%H%M}.gif # 保存するgifファイル名

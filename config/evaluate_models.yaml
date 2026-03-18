@@ -1,0 +1,41 @@
+defaults:
+  - layout: layouts
+  - env: default
+  - override env/reward: eval
+  - _self_
+
+stage: compact
+ui:
+  #random:
+  ippo:
+    - checkpoint: checkpoints/ippo_rnn/yyyymmdd/hhmm
+      step: 10000
+    - checkpoint: checkpoints/ippo_rnn/yyyymmdd/hhmm
+      step: 20000
+
+seed: [0, 0]
+random_agent_position: false
+visualize: false
+loop: 10
+save_gif: false
+gif_filename: evalate_${now:%Y%m%d%H%M}.gif
+description: ""
+
+hydra:
+  run:
+    dir: outputs/${hydra.job.name}/${now:%Y%m%d}/${now:%H%M}${description}/config
+  sweep:
+    dir: outputs/${hydra.job.name}/${now:%Y%m%d}/${now:%H%M}${description}_multirun
+    subdir: ${hydra.job.id}_${hydra.job.override_dirname}/config
+  job:
+    config:
+      override_dirname:
+        kv_sep: "="
+        item_sep: "_"
+        # multirunのときに出力ディレクトリ名に含めない設定値
+        exclude_keys:
+          - env/menu
+          - env/parameter
+          - env/reward
+          - env/schedule
+          - description
