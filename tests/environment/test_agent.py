@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from environment.actions import Actions
 from environment.agent import Agent
 
 
@@ -184,3 +185,22 @@ class TestAgentStr:
     def test_str_contains_pos_info(self):
         agent = _make_agent([[2, 3]], [[-1, 0]])
         assert "pos" in str(agent)
+
+
+class TestNumActions:
+    """Agent.num_actions プロパティのテスト."""
+
+    def test_num_actions_equals_capacity_plus_base(self):
+        agent = _make_agent([[2, 3]], [[-1, 0]], capacity=3)
+        # num_actions は配列 (per-agent)
+        assert int(agent.num_actions[0]) == 3 + Actions.PICK_PLACE_BASE
+
+    def test_num_actions_scales_with_capacity(self):
+        agent_cap2 = _make_agent([[2, 3]], [[-1, 0]], capacity=2)
+        agent_cap4 = _make_agent([[2, 3]], [[-1, 0]], capacity=4)
+        assert int(agent_cap4.num_actions[0]) > int(agent_cap2.num_actions[0])
+
+    def test_num_actions_two_agents(self):
+        agent = _make_agent([[2, 3], [4, 5]], [[-1, 0], [1, 0]], capacity=3)
+        chex.assert_shape(agent.num_actions, (2,))
+        assert int(agent.num_actions[0]) == int(agent.num_actions[1])
