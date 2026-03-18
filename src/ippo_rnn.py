@@ -691,7 +691,7 @@ def make_train(app_config: AppConfig):
                 rng, _rng = jax.random.split(rng)
                 ac_in = (last_obs[jnp.newaxis, :], last_done[jnp.newaxis])
                 hstate, pi, value = network.apply(params, hstate, ac_in)
-                action = jnp.argmax(pi.probs, axis=0).squeeze()
+                action = jnp.argmax(pi.probs, axis=-1).squeeze()
                 obs, env_state, original_reward, shaped_rewards, reward_types, done = env.step_env(
                     last_env_state, action, _rng
                 )

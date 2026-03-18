@@ -78,7 +78,7 @@ class TestCookingReward:
     """注文済み/未注文の料理を調理したときの報酬分岐."""
 
     def _dish_encoding(self) -> int:
-        """recipe [0,0,0] の完成品エンコーディング (count=0)."""
+        """Recipe [0,0,0] の完成品エンコーディング (count=0)."""
         ing_obj = 3 * int(DynamicObject.BASE_INGREDIENT)
         return int(DynamicObject.set_count(ing_obj | DynamicObject.COOKED | DynamicObject.PLATE, 0))
 

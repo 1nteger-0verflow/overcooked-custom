@@ -226,6 +226,68 @@ class TestActorCriticRNN:
         chex.assert_shape(value, (1, _N))
 
 
+# ---------------------------------------------------------------------------
+# Greedy action selection from pi.probs  (regression: axis=0 vs axis=-1)
+# ---------------------------------------------------------------------------
+@pytest.mark.slow
+class TestGreedyActionFromProbs:
+    """_evaluate._step_env の greedy action 選択ロジックの回帰テスト.
+
+    pi.probs.shape = (1, num_agents, num_actions) に対して
+    axis=-1 (num_actions 軸) で argmax を取ることで
+    shape (num_agents,) のアクションベクトルが得られることを検証する。
+    axis=0 (batch 軸) を誤って使うと shape (num_agents, num_actions) になる。
+    """
+
+    def test_probs_shape(self, ac_fixtures):
+        """pi.probs が (1, num_agents, num_actions) であることを確認."""
+        model, params, hidden = ac_fixtures
+        obs = jnp.zeros((1, _N, _H, _W, _C))
+        done = jnp.zeros((1, _N))
+        _hidden, pi, _v = model.apply(params, hidden, (obs, done))
+        chex.assert_shape(pi.probs, (1, _N, _A))
+
+    def test_argmax_axis_minus1_shape(self, ac_fixtures):
+        """axis=-1 の argmax → squeeze で (num_agents,) になることを確認."""
+        model, params, hidden = ac_fixtures
+        obs = jnp.zeros((1, _N, _H, _W, _C))
+        done = jnp.zeros((1, _N))
+        _hidden, pi, _v = model.apply(params, hidden, (obs, done))
+        action = jnp.argmax(pi.probs, axis=-1).squeeze()
+        chex.assert_shape(action, (_N,))
+
+    def test_argmax_axis0_wrong_shape(self, ac_fixtures):
+        """回帰テスト: axis=0 (誤り) は (num_agents, num_actions) になる."""
+        model, params, hidden = ac_fixtures
+        obs = jnp.zeros((1, _N, _H, _W, _C))
+        done = jnp.zeros((1, _N))
+        _hidden, pi, _v = model.apply(params, hidden, (obs, done))
+        wrong_action = jnp.argmax(pi.probs, axis=0).squeeze()
+        # axis=0 では num_actions 軸が残り (num_agents, num_actions) になる
+        assert wrong_action.shape != (_N,), "axis=0 は正しいアクション shape を返してはいけない"
+
+    def test_argmax_returns_valid_action_indices(self, ac_fixtures):
+        """Greedy action の値が [0, num_actions) の範囲内であることを確認."""
+        model, params, hidden = ac_fixtures
+        obs = jnp.zeros((1, _N, _H, _W, _C))
+        done = jnp.zeros((1, _N))
+        _hidden, pi, _v = model.apply(params, hidden, (obs, done))
+        action = jnp.argmax(pi.probs, axis=-1).squeeze()
+        assert jnp.all(action >= 0)
+        assert jnp.all(action < _A)
+
+    def test_eval_ac_in_format(self, ac_fixtures):
+        """_step_env の ac_in 生成パターン (obs[newaxis], done[newaxis]) を再現."""
+        model, params, hidden = ac_fixtures
+        # _step_env と同じ前処理: last_obs.shape=(num_agents, H, W, C) を (1, num_agents, H, W, C) に
+        last_obs = jnp.zeros((_N, _H, _W, _C))
+        last_done = jnp.zeros((_N,))
+        ac_in = (last_obs[jnp.newaxis, :], last_done[jnp.newaxis])
+        _hidden, pi, _v = model.apply(params, hidden, ac_in)
+        action = jnp.argmax(pi.probs, axis=-1).squeeze()
+        chex.assert_shape(action, (_N,))
+
+
 class TestTransition:
     def _make(self):
         return Transition(

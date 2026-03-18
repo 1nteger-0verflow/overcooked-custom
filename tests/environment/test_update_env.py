@@ -64,7 +64,7 @@ class TestProgressCookingVolumeClip:
         assert volume >= 1
 
     def test_cooking_in_progress_does_not_set_cooked_flag(self, compact_state, pot_pos):
-        """extra > 1 のとき (調理中) COOKED フラグが立たないこと."""
+        """Extra > 1 のとき (調理中) COOKED フラグが立たないこと."""
         r, c = pot_pos
         ing_obj = 3 * int(DynamicObject.BASE_INGREDIENT)
         new_grid = compact_state.grid.at[r, c, Channel.obj].set(ing_obj)
